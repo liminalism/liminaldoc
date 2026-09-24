@@ -14,7 +14,7 @@ cargo run -p liminaldoc -- --writer
 
 Build the whole workspace before running the launcher: it expects `liminaldoc-reader` and `liminaldoc-writer` beside its own executable. `liminaldoc export BOOK.legebook OUTPUT.pdf` delegates to the writer. PDF opens in the reader; `.legebook`, DOCX, ODT, Markdown and text open in the writer. DjVu is reserved for the next reader backend and currently reports that it is unsupported.
 
-The reader keeps its Lege rendering, navigation, search, selection and processing code. The writer keeps editable document tabs, native file dialogs, `.legebook` persistence and PDF/DOCX/Markdown/text output. A shared-window mixed PDF/manuscript tab host is still pending; the separate backends preserve both experiences during the extraction.
+The reader keeps its Lege rendering, navigation, search, selection and processing code. The writer keeps editable document tabs, native file dialogs, `.legebook` persistence and PDF/DOCX/Markdown/text output. Opening a PDF from the writer starts a reader window on demand. A shared-window mixed PDF/manuscript tab host is still pending; the separate backends preserve both experiences during the extraction.
 
 ## Repository dependencies
 

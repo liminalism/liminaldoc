@@ -9,6 +9,7 @@
 //! exits. It does not pretend to have drawn.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 use docwrite_app::PromptKind;
@@ -201,6 +202,14 @@ impl EditorApp {
     }
 
     fn open_path(&mut self, path: &Path) {
+        if path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        {
+            self.open_pdf_in_reader(path);
+            return;
+        }
         if let Some(index) = self.tabs.find_bundle(path) {
             self.tabs.select(index);
             self.status = None;
@@ -222,10 +231,34 @@ impl EditorApp {
         }
     }
 
+    fn open_pdf_in_reader(&mut self, path: &Path) {
+        let outcome = std::env::current_exe()
+            .map(|writer| {
+                writer.with_file_name(format!(
+                    "liminaldoc-reader{}",
+                    std::env::consts::EXE_SUFFIX
+                ))
+            })
+            .map_err(|error| format!("could not locate Liminaldoc Reader: {error}"))
+            .and_then(|reader| {
+                Command::new(&reader).arg(path).spawn().map_err(|error| {
+                    format!(
+                        "could not open PDF in Liminaldoc Reader ({}): {error}; build the full workspace first",
+                        reader.display()
+                    )
+                })
+            })
+            .map(|_| format!("opened {} in Liminaldoc Reader", path.display()));
+        self.report(outcome);
+    }
+
     fn open_file_dialog(&mut self) {
         let path = FileDialog::new()
             .set_title("Open document")
-            .add_filter("Documents", &["txt", "md", "markdown", "odt", "docx"])
+            .add_filter(
+                "Documents",
+                &["txt", "md", "markdown", "odt", "docx", "pdf"],
+            )
             .pick_file();
         if let Some(path) = path {
             self.open_path(&path);

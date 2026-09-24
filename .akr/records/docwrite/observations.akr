@@ -78,7 +78,7 @@ record docwrite.observation.no-shaping-in-workspace/2 : observation {
 
 record docwrite.observation.no-shaping-in-workspace/3 : observation {
     title "Nothing in Lege-ecosystem shapes, breaks or hyphenates book text"
-    state verified
+    state superseded
     statement """
         No ecosystem crate depends on harfbuzz/rustybuzz/harfrust/swash directly; shaping is only
         reachable through cosmic-text in lege-viewer's chrome. pdf-font (skrifa 0.44) parses
@@ -90,6 +90,22 @@ record docwrite.observation.no-shaping-in-workspace/3 : observation {
     method manual
     watches [ "lege-pdf/render/crates/pdf-font/src/**", "Cargo.toml" ]
     supersedes [ @docwrite.observation.no-shaping-in-workspace/2 ]
+}
+
+record docwrite.observation.no-shaping-in-workspace/4 : observation {
+    title "Nothing in Lege-ecosystem shapes, breaks or hyphenates book text"
+    state verified
+    statement """
+        No ecosystem crate depends on harfbuzz/rustybuzz/harfrust/swash directly; shaping is only
+        reachable through cosmic-text in lege-viewer's chrome. pdf-font (skrifa 0.44) parses
+        TrueType, CFF, Type1 and CID programs and exposes outlines, gid_for_char and advances but
+        no GSUB/GPOS. There is no unicode-linebreak, unicode-segmentation, hyphenation or
+        Knuth-Plass code. ropey is declared in the root workspace but no Lege crate uses it.
+        """
+    observed_at git:d631cd1b32e42e9068b6e2934af0d67784a65a67
+    method manual
+    watches [ "Cargo.toml", "crates/docwrite-typeset/src/**" ]
+    supersedes [ @docwrite.observation.no-shaping-in-workspace/3 ]
 }
 
 record docwrite.observation.pdf-text-supports-source-passages/1 : observation {
@@ -113,7 +129,7 @@ record docwrite.observation.pdf-text-supports-source-passages/1 : observation {
 
 record docwrite.observation.pdf-text-supports-source-passages/2 : observation {
     title "Lege's text extraction already supports page-anchored source passages"
-    state verified
+    state superseded
     statement """
         pdf_text::TextPage exposes per-character origin, boxes and matrices, words(), rects() and
         text_in_rect() over UTF-16 ranges; lege_pdf_read::positioned_words returns word boxes per
@@ -129,6 +145,26 @@ record docwrite.observation.pdf-text-supports-source-passages/2 : observation {
         "lege-viewer/src/text/selection.rs"
     ]
     supersedes [ @docwrite.observation.pdf-text-supports-source-passages/1 ]
+}
+
+record docwrite.observation.pdf-text-supports-source-passages/3 : observation {
+    title "Lege's text extraction already supports page-anchored source passages"
+    state withdrawn
+    statement """
+        pdf_text::TextPage exposes per-character origin, boxes and matrices, words(), rects() and
+        text_in_rect() over UTF-16 ranges; lege_pdf_read::positioned_words returns word boxes per
+        page; lege-viewer's text/selection.rs implements hit-testing and word/line/multi-page
+        selection. A Source Note can therefore record document, page, UTF-16 range and rectangles
+        and reopen the source at exactly that passage.
+        """
+    observed_at git:823d46ddc946bb5d6ac8fc360a9d9ba6506d7a7d
+    method manual
+    watches [
+        "lege-pdf/render/crates/pdf-text/src/**",
+        "lege-pdf/read/src/text.rs",
+        "lege-viewer/src/text/selection.rs"
+    ]
+    supersedes [ @docwrite.observation.pdf-text-supports-source-passages/2 ]
 }
 
 record docwrite.observation.pdf-write-gaps/1 : observation {
@@ -180,7 +216,7 @@ record docwrite.observation.pdf-write-gaps/3 : observation {
 
 record docwrite.observation.pdf-write-gaps/4 : observation {
     title "lege-pdf-write lacks what typeset-book PDF output needs"
-    state verified
+    state superseded
     statement """
         lege-pdf-write now embeds several glyph-font banks per page (GlyphLine.font), each
         a caller-subset TrueType program with custom ToUnicode and widths, and draws gray
@@ -192,6 +228,22 @@ record docwrite.observation.pdf-write-gaps/4 : observation {
     method manual
     watches [ "lege-pdf/write/src/**" ]
     supersedes [ @docwrite.observation.pdf-write-gaps/3 ]
+}
+
+record docwrite.observation.pdf-write-gaps/5 : observation {
+    title "lege-pdf-write lacks what typeset-book PDF output needs"
+    state verified
+    statement """
+        lege-pdf-write now embeds several glyph-font banks per page (GlyphLine.font), each
+        a caller-subset TrueType program with custom ToUnicode and widths, and draws gray
+        filled rectangles (PdfPageArtifact.fills). Still missing for book output: CFF /
+        FontFile3 embedding, general paths and RGB colour, link annotations and named
+        destinations, and a real structure tree (set_structure writes a flat list).
+        """
+    observed_at git:6aa8fc0ab7799d8c9dbec6154b21b8e72f1768b6
+    method manual
+    watches [ "Cargo.toml", "crates/docwrite-export/src/**" ]
+    supersedes [ @docwrite.observation.pdf-write-gaps/4 ]
 }
 
 record docwrite.observation.pixelkit-shell-gaps/1 : observation {
@@ -280,7 +332,7 @@ record docwrite.observation.viewer-paging-is-line-continuity/1 : observation {
 
 record docwrite.observation.viewer-paging-is-line-continuity/2 : observation {
     title "lege-viewer pages by line continuity and snaps only on command"
-    state verified
+    state superseded
     statement """
         lege-viewer's PageUp/PageDown is line-continuity paging: paging_target makes the last
         fully visible line the new top line, with notional-line and 8%-overlap geometric
@@ -294,6 +346,27 @@ record docwrite.observation.viewer-paging-is-line-continuity/2 : observation {
     method manual
     watches [ "lege-viewer/src/scroll/**", "lege-viewer/src/document/engine.rs" ]
     supersedes [ @docwrite.observation.viewer-paging-is-line-continuity/1 ]
+}
+
+record docwrite.observation.viewer-paging-is-line-continuity/3 : observation {
+    title "lege-viewer pages by line continuity and snaps only on command"
+    state verified
+    statement """
+        lege-viewer's PageUp/PageDown is line-continuity paging: paging_target makes the last
+        fully visible line the new top line, with notional-line and 8%-overlap geometric
+        fallbacks (lege-viewer/src/scroll/paging.rs). Nearest-page snap is an explicit command
+        (nearest_page_boundary, bound to S) and never happens automatically. Reusable, not
+        PDF-coupled: scroll/anchor.rs, frame.rs, damage.rs, diagnostics.rs, trace.rs, scene.rs,
+        present/*. The conductor/tile pipeline and the Pdf-variant artifact enums in
+        document/engine.rs assume read-only content.
+        """
+    observed_at git:823d46ddc946bb5d6ac8fc360a9d9ba6506d7a7d
+    method manual
+    watches [
+        "crates/liminal-reader/src/scroll/**",
+        "crates/liminal-reader/src/document/engine.rs"
+    ]
+    supersedes [ @docwrite.observation.viewer-paging-is-line-continuity/2 ]
 }
 
 record docwrite.observation.zz-test/1 : observation {

@@ -12,6 +12,17 @@ record docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 : pape
     created_at 2026-09-24
 }
 
+record docwrite.papercut.after-copying-the-docwrite-ledger-into/1 : papercut {
+    title "After copying the docwrite ledger into Liminaldoc, strict validation…"
+    state verified
+    statement """
+        After copying the docwrite ledger into Liminaldoc, strict validation flagged old watched paths and some legacy test command names. The original commit IDs also needed a local history merge; extraction instructions should preserve provenance and revise watches before declaring the ledger clean.
+        """
+    observed_at git:62fe5780614fc6894d1d9191b2bd5a8d5948df43
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : papercut {
     title "AKR commands for docwrite must run with lege-docwrite as cwd; invoking…"
     state verified

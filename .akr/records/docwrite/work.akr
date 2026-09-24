@@ -310,13 +310,20 @@ record docwrite.work.pdf-document-tab/1 : work {
         separate winit event loop or treat a source pane as the PDF tab.
         """
     note """
-        Scope investigation on 2026-09-24: lege-viewer::ViewerApp owns its Window,
-        Presenter, ApplicationHandler, tile cache, worker updates and password UI.
-        Its PdfEngine implements DocumentEngine and can supply page geometry and
-        artifacts, but a shared tab host needs a surface adapter plus wake, damage,
-        resize and input contracts. A first implementation should preserve per-tab
-        state and cover encrypted PDFs, switching during rendering, and independent
-        PDF/document presentation. No PDF tab implementation is part of the
-        current New/Open/Save work.
+        Extraction progress on 2026-09-24: the standalone Liminaldoc launcher
+        routes PDF and manuscript formats to separate executables. The writer's
+        native Open dialog now starts a reader window for PDF only when requested.
+        This is an interim product route, not a PDF document tab. Cargo dependency
+        trees confirm the launcher has no backend dependencies and the writer has
+        no liminaldoc-reader dependency.
+
+        For the mixed tab host, extract a host-independent reader surface that
+        retains the existing conductor, tile, search, selection, zoom and
+        navigation behavior. Own PDF state per tab and route input only to the
+        active surface. Instantiate PDF workers, caches and presenter on first PDF
+        use; opening a manuscript alone must not do so. Cover encrypted PDF,
+        switching while rendering, tab close, and idle wake behavior before
+        retiring the separate-window route. Preserve bounded workers and memory
+        when multiple PDF tabs are open.
         """
 }
