@@ -19,7 +19,7 @@ fn long_text() -> String {
 }
 
 #[test]
-fn keep_rules_hold_and_prose_features_shape() {
+fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
     let geometry = Geometry {
         page_width: 280.0,
         page_height: 80.0,
