@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:9f9ac4ee4e0a11b754feb70e3e0082233d73dd5b92caab217afb2243d7a43476"
+    source_graph "sha256:e3b37236edbb7fdbaed1cf1b05c62371ebbe723621672f3121321ea92134dc3e"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:7a809dbe57cd5ef6a4f510fa3250beaa5ad1f8da19feb66b2b04056718808129"
-    records 41
+    hash "sha256:87b0798384c70873f5d85dd8ab443c0b5f36acbf16057d152eef8f23677d462d"
+    records 43
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -682,6 +682,16 @@ seal @docwrite.evidence.head-toc/1 {
 seal @docwrite.evidence.incremental-matches-fresh/1 {
     state verified
     hash "sha256:348807ba228cd0324d8844eac0db04b8260e3c8108f46e0e46b8da3827fe8b72"
+}
+
+seal @docwrite.evidence.liminaldoc-lazy-backends/1 {
+    state verified
+    hash "sha256:0b7239ef84870e7ceb2ffdb0d231e66482a3044712cae4d9dc53c813625ffe69"
+}
+
+seal @docwrite.evidence.liminaldoc-writer-tests/1 {
+    state verified
+    hash "sha256:4922ffb2a4c468c6bff90b87256fc61169a50edf3f0b13b1040c5c5edf2762f1"
 }
 
 seal @docwrite.evidence.m1-edit-basics/1 {

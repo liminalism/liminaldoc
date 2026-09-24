@@ -282,6 +282,29 @@ record docwrite.evidence.incremental-matches-fresh/1 : evidence {
         """
 }
 
+record docwrite.evidence.liminaldoc-lazy-backends/1 : evidence {
+    title "Cargo dependency trees show the liminaldoc launcher has no backend dependencies, the writer does not depend on liminaldoc-reader, and the reader does not depend on docwrite crates. The writer's PDF Open action spawns the sibling reader executable on demand."
+    state verified
+    result pass
+    method observation
+    observed_at git:5a59ce46621242b50f127a379203617be1c15c4f
+    summary """
+        Cargo dependency trees show the liminaldoc launcher has no backend dependencies, the writer does not depend on liminaldoc-reader, and the reader does not depend on docwrite crates. The writer's PDF Open action spawns the sibling reader executable on demand.
+        """
+}
+
+record docwrite.evidence.liminaldoc-writer-tests/1 : evidence {
+    title "The extracted writer's unit and integration tests passed after adding the native Open-dialog PDF route."
+    state verified
+    result pass
+    method command
+    observed_at git:5a59ce46621242b50f127a379203617be1c15c4f
+    command "cargo test -p docwrite-app --offline --quiet"
+    summary """
+        The extracted writer's unit and integration tests passed after adding the native Open-dialog PDF route.
+        """
+}
+
 record docwrite.evidence.m1-edit-basics/1 : evidence {
     title "Insert, delete, selection, word motion, cut/copy/paste and undo/redo round-trip across paragraphs and chapters."
     state verified
