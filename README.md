@@ -18,4 +18,4 @@ The reader keeps its Lege rendering, navigation, search, selection and processin
 
 ## Repository dependencies
 
-The source has moved into its own Git repository. During this extraction it still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.
+The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.

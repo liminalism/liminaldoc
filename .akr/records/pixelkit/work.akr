@@ -46,6 +46,19 @@ record pixelkit.work.presenter-injection/1 : work {
     implements [ @docwrite.decision.ui-stack-pixelkit ]
 }
 
+record pixelkit.work.raster-simd-coverage/1 : work {
+    title "PixelKit raster SIMD coverage with scalar equivalence"
+    state proposed
+    intent """
+        Expand PixelKit raster SIMD coverage where profiles justify it, beginning
+        with exact max-coverage spans and then identity-size opaque bitmap rows.
+        Preserve byte-for-byte scalar results, clipped tails and alpha endpoints
+        on x86_64 and aarch64; retain a portable fallback. Benchmark both short
+        glyph spans and long rows before accepting a vector path. Consider damage
+        rectangles and idle wakeup behavior before vectorizing whole-frame work.
+        """
+}
+
 record pixelkit.work.scroll-phase-gestures/1 : work {
     title "Forward scroll TouchPhase and magnify gestures"
     state completed

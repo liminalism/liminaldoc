@@ -37,8 +37,11 @@ fn route(args: &[OsString]) -> Result<(Mode, &[OsString]), String> {
         if first == "--help" || first == "-h" {
             return Err("usage: liminaldoc [DOCUMENT.pdf|DOCUMENT.legebook|DOCUMENT.docx|DOCUMENT.odt|DOCUMENT.md|DOCUMENT.txt]\n       liminaldoc --reader [PDF] | --writer [DOCUMENT]\n       liminaldoc export BOOK.legebook OUTPUT".into());
         }
-        let extension = Path::new(first).extension().and_then(OsStr::to_str)
-            .unwrap_or("").to_ascii_lowercase();
+        let extension = Path::new(first)
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if extension == "pdf" {
             return Ok((Mode::Reader, args));
         }
@@ -55,7 +58,10 @@ fn main() -> ExitCode {
         Ok(route) => route,
         Err(message) => {
             eprintln!("{message}");
-            return if args.first().is_some_and(|arg| arg == "--help" || arg == "-h") {
+            return if args
+                .first()
+                .is_some_and(|arg| arg == "--help" || arg == "-h")
+            {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
@@ -66,7 +72,11 @@ fn main() -> ExitCode {
         eprintln!("liminaldoc: could not locate its installed reader and writer");
         return ExitCode::FAILURE;
     };
-    let backend = executable.with_file_name(format!("{}{}", mode.executable(), std::env::consts::EXE_SUFFIX));
+    let backend = executable.with_file_name(format!(
+        "{}{}",
+        mode.executable(),
+        std::env::consts::EXE_SUFFIX
+    ));
     match Command::new(&backend).args(forwarded).status() {
         Ok(status) => ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8),
         Err(error) => {
@@ -90,7 +100,12 @@ mod tests {
         assert_eq!(route(&args(&["paper.pdf"])).unwrap().0, Mode::Reader);
         assert_eq!(route(&args(&["draft.legebook"])).unwrap().0, Mode::Writer);
         assert_eq!(route(&args(&["draft.docx"])).unwrap().0, Mode::Writer);
-        assert_eq!(route(&args(&["export", "draft.legebook", "draft.pdf"])).unwrap().0, Mode::Writer);
+        assert_eq!(
+            route(&args(&["export", "draft.legebook", "draft.pdf"]))
+                .unwrap()
+                .0,
+            Mode::Writer
+        );
         assert!(route(&args(&["scan.djvu"])).is_err());
     }
 }

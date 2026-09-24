@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:314d879e99e4b151d2b477a171c8c69c1dba87772fe2b5ce7a5c556902b12102"
+    source_graph "sha256:3e4396c12b1473ef5dd5f424458d71398d6a9499448c2f850a1227d126565a1a"
 }
 
 source ".akr/project.akr" {
@@ -14,7 +14,7 @@ source ".akr/project.akr" {
 }
 
 source ".akr/records/docwrite/decisions.akr" {
-    hash "sha256:fd11b55f2ca63aa5b4b515adb4dea0429e7f70fc0a71fb89487bd545fd23c9d2"
+    hash "sha256:b4cc06514d47033698d80057f67cb8991d542dbd7579586d170f9c140fd3e748"
     records 9
 }
 
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:641e81c4742875883b00e74a518415892205e5e2ce7f496439a56541d9421b48"
-    records 10
+    hash "sha256:56f7e1a88d0a9e7279b03240c1fd5fd02000181ae963138c61910475b95caa5d"
+    records 11
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:3b47fa98b551803518b3140c4345840f1af290549e9c1eb73a3c2f7609ec8412"
-    records 22
+    hash "sha256:eb463aeff0f546ffb14e7c96e2968f57fede4c9bbe742ce14d78dfe711daca61"
+    records 24
 }
 
 source ".akr/records/lege/work.akr" {
@@ -54,8 +54,8 @@ source ".akr/records/lege/work.akr" {
 }
 
 source ".akr/records/pixelkit/work.akr" {
-    hash "sha256:654ce6c325a3db6d14eabd9cc589af73d6b352cb8a11c7a17944515482f5e1a3"
-    records 6
+    hash "sha256:1f229d123547cf4f76083b3a27761034065ef021fab0b459552695844d83e8b9"
+    records 7
 }
 
 resolution @docwrite.decision.export-formats/1 {
@@ -932,6 +932,11 @@ seal @docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 {
 seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 {
     state verified
     hash "sha256:88a777cc82c3e2c3db3c210da9bce31a5a798e77ef6c0873365462b3cea292ce"
+}
+
+seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 {
+    state verified
+    hash "sha256:341cde05732fb0a3817bbe8129f1e23ec1fad21694a03ae7908524a854594abf"
 }
 
 seal @docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 {

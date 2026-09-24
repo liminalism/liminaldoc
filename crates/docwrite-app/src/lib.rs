@@ -1093,7 +1093,7 @@ pub const KEYPRESS_BUDGET: Duration = Duration::from_millis(8);
 fn load_family() -> Option<Vec<(Face, Vec<u8>)>> {
     let supplemental = std::path::Path::new("/System/Library/Fonts/Supplemental");
     let noto = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
     let mut families: Vec<[Option<std::path::PathBuf>; 4]> = Vec::new();
     if let Some(regular) = std::env::var_os("LEGE_DOCWRITE_FONT") {
         let variant = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);

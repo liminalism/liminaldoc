@@ -1,18 +1,18 @@
 //! Exercise the production viewer raster worker with a repeated visible-tile set.
 //!
-//! `LEGE_PDF_IMAGE_RENDERER=cpu|gpu|auto cargo run --release -p lege-viewer \
+//! `LEGE_PDF_IMAGE_RENDERER=cpu|gpu|auto cargo run --release -p liminaldoc-reader \
 //!   --example pdf_tile_profile -- file.pdf 0 0 7 12`
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use lege_viewer::PageIndex;
-use lege_viewer::document::pdf_engine::PdfEngine;
-use lege_viewer::document::{
+use liminaldoc_reader::PageIndex;
+use liminaldoc_reader::document::pdf_engine::PdfEngine;
+use liminaldoc_reader::document::{
     CancellationFlag, ColorMode, DocumentEngine, RasterPass, TILE_SIZE, TileCoord, TileDemand,
     ZoomBucket,
 };
-use lege_viewer::geometry::{Affine, RectF, RectI};
+use liminaldoc_reader::geometry::{Affine, RectF, RectI};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
@@ -98,7 +98,7 @@ fn parse_or<T: std::str::FromStr>(
 
 fn tile_demands(
     page: PageIndex,
-    geometry: lege_viewer::document::PageGeometry,
+    geometry: liminaldoc_reader::document::PageGeometry,
     bucket: ZoomBucket,
     limit: usize,
 ) -> Vec<TileDemand> {
@@ -157,13 +157,13 @@ fn tile_demands(
 }
 
 fn render_pass(
-    worker: &mut dyn lege_viewer::document::DocumentRasterWorker,
-    artifacts: &lege_viewer::document::CompiledArtifacts,
+    worker: &mut dyn liminaldoc_reader::document::DocumentRasterWorker,
+    artifacts: &liminaldoc_reader::document::CompiledArtifacts,
     bucket: ZoomBucket,
     demands: &[TileDemand],
     generation: u64,
     cancellation: &CancellationFlag,
-) -> Result<u64, lege_viewer::document::DocumentEngineError> {
+) -> Result<u64, liminaldoc_reader::document::DocumentEngineError> {
     let mut checksum = 0xcbf2_9ce4_8422_2325u64;
     for demand in demands {
         let tile = worker.raster_tile(

@@ -21,7 +21,7 @@ docwrite-export = { workspace = true }
 pixelkit-raster = { workspace = true }
 lege-pdf-read = { workspace = true }
 pixelkit-shell = { workspace = true }
-rfd = { path = "../../../lege-process/GUI/rfd" }
+rfd = { path = "../../../Lege-ecosystem/lege-process/GUI/rfd" }
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 quick-xml = "0.41.0"
 docx-rust = "0.1.11"

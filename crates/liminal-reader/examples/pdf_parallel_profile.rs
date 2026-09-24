@@ -1,6 +1,6 @@
 //! Measure the production viewer's parallel PDF raster path.
 //!
-//! `LEGE_PDF_IMAGE_RENDERER=cpu|auto cargo run --release -p lege-viewer \
+//! `LEGE_PDF_IMAGE_RENDERER=cpu|auto cargo run --release -p liminaldoc-reader \
 //!   --example pdf_parallel_profile -- file.pdf 0 8 0 4 8 5`
 //!
 //! Arguments are: file, zero-based first page, page count, zoom bucket,
@@ -12,13 +12,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, mpsc};
 use std::time::{Duration, Instant};
 
-use lege_viewer::PageIndex;
-use lege_viewer::document::pdf_engine::PdfEngine;
-use lege_viewer::document::{
+use liminaldoc_reader::PageIndex;
+use liminaldoc_reader::document::pdf_engine::PdfEngine;
+use liminaldoc_reader::document::{
     CancellationFlag, ColorMode, CompiledArtifacts, DocumentEngine, RasterPass, TILE_SIZE,
     TileCoord, TileDemand, ZoomBucket,
 };
-use lege_viewer::geometry::{Affine, RectF, RectI};
+use liminaldoc_reader::geometry::{Affine, RectF, RectI};
 
 #[derive(Clone)]
 struct RasterJob {
@@ -200,7 +200,7 @@ fn parse_or<T: std::str::FromStr>(
 
 fn tile_demands(
     page: PageIndex,
-    geometry: lege_viewer::document::PageGeometry,
+    geometry: liminaldoc_reader::document::PageGeometry,
     bucket: ZoomBucket,
     limit: usize,
 ) -> Vec<TileDemand> {

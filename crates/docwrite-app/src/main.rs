@@ -409,9 +409,6 @@ impl EditorApp {
                 self.tabs.find_again();
             }
             "Backslash" => self.tabs.toggle_sidebar(),
-            "KeyE" => {
-                self.save_as_dialog();
-            }
             digit if alt && digit.starts_with("Digit") => {
                 if let Ok(number) = digit.trim_start_matches("Digit").parse::<usize>() {
                     self.tabs.set_block_kind_number(number);

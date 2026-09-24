@@ -22,6 +22,13 @@ use super::session::{PageArtifactUpdate, SessionUpdate, UpdateQueue};
 use super::tile::{TileDemand, TileKey, TileTier};
 use super::viewport::{NavigationMode, ScrollDirection, ViewportIntent};
 
+/// Bound per-document workers until one shared pool owns all reader tabs.
+fn worker_split(available: usize) -> (usize, usize) {
+    let total = available.clamp(2, 8);
+    let compile = (total / 3).max(1);
+    (compile, total - compile)
+}
+
 #[derive(Debug)]
 pub enum ConductorCommand {
     IntentChanged,
@@ -360,8 +367,7 @@ impl Conductor {
     ) -> Self {
         let descriptor = engine.descriptor();
         let workers = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
-        let compile_workers = (workers / 3).max(1);
-        let raster_workers = workers.saturating_sub(compile_workers).max(1);
+        let (compile_workers, raster_workers) = worker_split(workers);
         // Keep hand-off queues deliberately shallow. Priority lives in the
         // conductor, where pending work can still be promoted or cancelled.
         let (compile_tx, compile_rx) = bounded(1);
@@ -1542,6 +1548,13 @@ fn vertical_distance(rect: RectF, viewport: RectF) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn document_workers_are_bounded_on_large_machines() {
+        assert_eq!(worker_split(1), (1, 1));
+        assert_eq!(worker_split(4), (1, 3));
+        assert_eq!(worker_split(128), (2, 6));
+    }
 
     #[test]
     fn a_panicking_page_is_set_aside_at_once_and_a_failing_one_after_a_retry() {

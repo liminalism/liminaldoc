@@ -4,26 +4,26 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use lege_viewer::PageIndex;
-use lege_viewer::cli::{CliError, LaunchMode, parse_launch_config, parse_launch_mode};
-use lege_viewer::document::engine::{CancellationFlag, DocumentEngine};
-use lege_viewer::document::layout::PageLayoutIndex;
-use lege_viewer::document::synthetic::SyntheticEngine;
-use lege_viewer::document::tile::ZoomBucket;
-use lege_viewer::geometry::{RectF, SizeF};
-use lege_viewer::scroll::{
+use liminaldoc_reader::PageIndex;
+use liminaldoc_reader::cli::{CliError, LaunchMode, parse_launch_config, parse_launch_mode};
+use liminaldoc_reader::document::engine::{CancellationFlag, DocumentEngine};
+use liminaldoc_reader::document::layout::PageLayoutIndex;
+use liminaldoc_reader::document::synthetic::SyntheticEngine;
+use liminaldoc_reader::document::tile::ZoomBucket;
+use liminaldoc_reader::geometry::{RectF, SizeF};
+use liminaldoc_reader::scroll::{
     DocumentLocation, NavigationHistory, PagingDirection, ReadingAnchor, notional_page_lines,
     paging_target,
 };
-use lege_viewer::text::{LineBox, SearchIndex};
-use lege_viewer::theme::Theme;
+use liminaldoc_reader::text::{LineBox, SearchIndex};
+use liminaldoc_reader::theme::Theme;
 
 #[derive(Debug, Default)]
 struct TestWake {
     count: AtomicUsize,
 }
 
-impl lege_viewer::document::WakeSink for TestWake {
+impl liminaldoc_reader::document::WakeSink for TestWake {
     fn wake(&self) {
         self.count.fetch_add(1, Ordering::Relaxed);
     }
@@ -32,7 +32,7 @@ impl lege_viewer::document::WakeSink for TestWake {
 #[cfg(feature = "pdf-engine")]
 fn viewer_pdf_fixture() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../lege-pdf/render/crates/pdf-chaos-tests/tests/fixtures/hello_world.pdf")
+        .join("../../../Lege-ecosystem/lege-pdf/render/crates/pdf-chaos-tests/tests/fixtures/hello_world.pdf")
 }
 
 #[cfg(feature = "pdf-engine")]
@@ -40,8 +40,8 @@ fn viewer_pdf_fixture() -> std::path::PathBuf {
 fn pdf_links_reach_viewer_space_with_destination_geometry() {
     use std::io::Write;
 
-    use lege_viewer::document::LinkTarget;
-    use lege_viewer::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::document::LinkTarget;
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
     use pdf_test_support::builder::PdfBuilder;
 
     let mut builder = PdfBuilder::new();
@@ -121,12 +121,12 @@ fn launch_mode_falls_back_to_the_empty_document_state() {
     assert_eq!(gpu.mode, LaunchMode::Pdf("example.pdf".into()));
     assert_eq!(
         gpu.presenter,
-        lege_viewer::present::PresenterPreference::Gpu
+        liminaldoc_reader::present::PresenterPreference::Gpu
     );
     let software = parse_launch_config(["--synthetic", "25", "--presenter", "software"]).unwrap();
     assert_eq!(
         software.presenter,
-        lege_viewer::present::PresenterPreference::Software
+        liminaldoc_reader::present::PresenterPreference::Software
     );
     assert_eq!(software.mode, LaunchMode::Synthetic { page_count: 25 });
     assert_eq!(
@@ -309,9 +309,9 @@ fn layout_cost_is_independent_of_window_size() {
 
 #[test]
 fn normalized_input_trace_replays_the_same_position_curve() {
-    use lege_viewer::geometry::Vec2d;
-    use lege_viewer::scroll::ScrollModel;
-    use lege_viewer::trace::{InputTrace, TraceCommand};
+    use liminaldoc_reader::geometry::Vec2d;
+    use liminaldoc_reader::scroll::ScrollModel;
+    use liminaldoc_reader::trace::{InputTrace, TraceCommand};
 
     let mut trace = InputTrace::default();
     trace.push(0, TraceCommand::WheelPixels(Vec2d { x: 0.0, y: 15.25 }));
@@ -338,7 +338,7 @@ fn normalized_input_trace_replays_the_same_position_curve() {
 
 #[test]
 fn memory_leases_account_shared_ownership_once() {
-    use lege_viewer::document::{CacheCategory, MemoryArbiter};
+    use liminaldoc_reader::document::{CacheCategory, MemoryArbiter};
 
     let arbiter = MemoryArbiter::new(1_024);
     let first = arbiter.reserve(CacheCategory::Text, 256);
@@ -356,11 +356,11 @@ fn memory_leases_account_shared_ownership_once() {
 
 #[test]
 fn cross_bucket_fallback_matches_page_space_not_tile_number() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         DocumentId, MemoryArbiter, TileCache, TileCoord, TileDemand, TileKey, TileSurface, TileTier,
     };
-    use lege_viewer::geometry::RectI;
-    use lege_viewer::paint::PixelSurface;
+    use liminaldoc_reader::geometry::RectI;
+    use liminaldoc_reader::paint::PixelSurface;
 
     let document = DocumentId(7);
     let page = PageIndex(2);
@@ -418,13 +418,13 @@ fn cross_bucket_fallback_matches_page_space_not_tile_number() {
         },
         distance_from_viewport: 0.0,
         visible: true,
-        page_view_box: lege_viewer::geometry::RectF {
+        page_view_box: liminaldoc_reader::geometry::RectF {
             x: 0.0,
             y: 0.0,
             width: 1.0,
             height: 1.0,
         },
-        color_mode: lege_viewer::document::ColorMode::Original,
+        color_mode: liminaldoc_reader::document::ColorMode::Original,
         variant: 0,
     };
     let fallback = cache.best_covering(demand, ZoomBucket(3));
@@ -434,11 +434,11 @@ fn cross_bucket_fallback_matches_page_space_not_tile_number() {
 
 #[test]
 fn older_tile_generation_never_replaces_newer_pixels() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         DocumentId, MemoryArbiter, TileCache, TileCoord, TileDemand, TileKey, TileSurface, TileTier,
     };
-    use lege_viewer::geometry::RectI;
-    use lege_viewer::paint::PixelSurface;
+    use liminaldoc_reader::geometry::RectI;
+    use liminaldoc_reader::paint::PixelSurface;
 
     let document = DocumentId(8);
     let page = PageIndex(0);
@@ -460,13 +460,13 @@ fn older_tile_generation_never_replaces_newer_pixels() {
         },
         distance_from_viewport: 0.0,
         visible: true,
-        page_view_box: lege_viewer::geometry::RectF {
+        page_view_box: liminaldoc_reader::geometry::RectF {
             x: 0.0,
             y: 0.0,
             width: 1.0,
             height: 1.0,
         },
-        color_mode: lege_viewer::document::ColorMode::Original,
+        color_mode: liminaldoc_reader::document::ColorMode::Original,
         variant: 0,
     };
     let surface = |generation, pixel| {
@@ -501,11 +501,11 @@ fn older_tile_generation_never_replaces_newer_pixels() {
 
 #[test]
 fn frame_tile_snapshot_is_immutable_across_cache_updates() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         DocumentId, MemoryArbiter, TileCache, TileCoord, TileDemand, TileKey, TileSurface, TileTier,
     };
-    use lege_viewer::geometry::RectI;
-    use lege_viewer::paint::PixelSurface;
+    use liminaldoc_reader::geometry::RectI;
+    use liminaldoc_reader::paint::PixelSurface;
 
     let document = DocumentId(9);
     let page = PageIndex(0);
@@ -527,13 +527,13 @@ fn frame_tile_snapshot_is_immutable_across_cache_updates() {
         },
         distance_from_viewport: 0.0,
         visible: true,
-        page_view_box: lege_viewer::geometry::RectF {
+        page_view_box: liminaldoc_reader::geometry::RectF {
             x: 0.0,
             y: 0.0,
             width: 1.0,
             height: 1.0,
         },
-        color_mode: lege_viewer::document::ColorMode::Original,
+        color_mode: liminaldoc_reader::document::ColorMode::Original,
         variant: 0,
     };
     let surface = |generation, pixel| {
@@ -578,11 +578,11 @@ fn frame_tile_snapshot_is_immutable_across_cache_updates() {
 
 #[test]
 fn frame_tile_snapshot_can_be_scoped_to_relevant_pages() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         DocumentId, MemoryArbiter, TileCache, TileCoord, TileDemand, TileKey, TileSurface, TileTier,
     };
-    use lege_viewer::geometry::RectI;
-    use lege_viewer::paint::PixelSurface;
+    use liminaldoc_reader::geometry::RectI;
+    use liminaldoc_reader::paint::PixelSurface;
 
     let document = DocumentId(10);
     let cache = TileCache::new(document, MemoryArbiter::new(1 << 20));
@@ -603,13 +603,13 @@ fn frame_tile_snapshot_can_be_scoped_to_relevant_pages() {
         },
         distance_from_viewport: 0.0,
         visible: true,
-        page_view_box: lege_viewer::geometry::RectF {
+        page_view_box: liminaldoc_reader::geometry::RectF {
             x: 0.0,
             y: 0.0,
             width: 1.0,
             height: 1.0,
         },
-        color_mode: lege_viewer::document::ColorMode::Original,
+        color_mode: liminaldoc_reader::document::ColorMode::Original,
         variant: 0,
     };
     for page in [PageIndex(0), PageIndex(1)] {
@@ -656,10 +656,10 @@ fn frame_tile_snapshot_can_be_scoped_to_relevant_pages() {
 
 #[test]
 fn synthetic_conductor_delivers_compiled_artifacts_and_tiles() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, SessionUpdate, TileCache, UpdateQueue, ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(20));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -723,11 +723,11 @@ fn synthetic_conductor_delivers_compiled_artifacts_and_tiles() {
 
 #[test]
 fn explicit_warm_hint_is_deferred_until_skimming_settles() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, NavigationMode, TileCache, UpdateQueue, ViewportPlanner,
         WarmHint, WarmReason,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(40));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -791,10 +791,10 @@ fn explicit_warm_hint_is_deferred_until_skimming_settles() {
 
 #[test]
 fn idle_conductor_builds_the_document_wide_canonical_preview_layer() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, TileCache, UpdateQueue, ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(24));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -834,11 +834,11 @@ fn idle_conductor_builds_the_document_wide_canonical_preview_layer() {
 
 #[test]
 fn skim_intent_renders_exact_tiles_without_building_a_new_preview() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, NavigationMode, TileCache, TileTier, UpdateQueue,
         ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(20));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -900,11 +900,11 @@ fn skim_intent_renders_exact_tiles_without_building_a_new_preview() {
 
 #[test]
 fn conductor_completes_predicted_final_tiles_before_they_are_visible() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, NavigationMode, TileCache, TileTier, UpdateQueue,
         ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(20));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -956,10 +956,10 @@ fn conductor_completes_predicted_final_tiles_before_they_are_visible() {
 
 #[test]
 fn rapid_replan_reaches_the_new_viewport_and_drains_old_work() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, SessionUpdate, TileCache, UpdateQueue, ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(SyntheticEngine::new(10_000));
     let layout = Arc::new(PageLayoutIndex::build(
@@ -1047,8 +1047,8 @@ fn rapid_replan_reaches_the_new_viewport_and_drains_old_work() {
 
 #[test]
 fn scrollbar_hover_plans_a_bounded_thumbnail_ring() {
-    use lege_viewer::document::ViewportPlanner;
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::document::ViewportPlanner;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine = SyntheticEngine::new(30);
     let layout = PageLayoutIndex::build(
@@ -1075,8 +1075,8 @@ fn scrollbar_hover_plans_a_bounded_thumbnail_ring() {
 
 #[test]
 fn directional_planning_prioritizes_visible_work_and_prefetches_ahead() {
-    use lege_viewer::document::{NavigationMode, ViewportPlanner};
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::document::{NavigationMode, ViewportPlanner};
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine = SyntheticEngine::new(200);
     let layout = PageLayoutIndex::build(
@@ -1132,11 +1132,11 @@ fn directional_planning_prioritizes_visible_work_and_prefetches_ahead() {
 
 #[test]
 fn promoted_tiles_replace_lower_quality_exact_entries() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         DocumentId, MemoryArbiter, TileCache, TileCoord, TileKey, TileSurface, TileTier,
     };
-    use lege_viewer::geometry::RectI;
-    use lege_viewer::paint::PixelSurface;
+    use liminaldoc_reader::geometry::RectI;
+    use liminaldoc_reader::paint::PixelSurface;
 
     let document = DocumentId(12);
     let cache = TileCache::new(document, MemoryArbiter::new(1 << 20));
@@ -1211,10 +1211,10 @@ fn visibility_below_document_is_empty() {
 #[cfg(feature = "pdf-engine")]
 #[test]
 fn real_pdf_compiles_text_and_renders_a_nonblank_tile() {
-    use lege_viewer::document::engine::RasterPass;
-    use lege_viewer::document::pdf_engine::PdfEngine;
-    use lege_viewer::document::{ViewportPlanner, ZoomBucket};
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::document::engine::RasterPass;
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::document::{ViewportPlanner, ZoomBucket};
+    use liminaldoc_reader::geometry::Vec2d;
 
     let started = Instant::now();
     let engine = PdfEngine::open(viewer_pdf_fixture(), None).expect("open viewer PDF fixture");
@@ -1257,7 +1257,7 @@ fn real_pdf_compiles_text_and_renders_a_nonblank_tile() {
         .expect("render structural PDF tile");
     assert_eq!(
         structure.key.tier,
-        lege_viewer::document::TileTier::TextFirst
+        liminaldoc_reader::document::TileTier::TextFirst
     );
     assert!(
         structure
@@ -1301,10 +1301,10 @@ fn real_pdf_compiles_text_and_renders_a_nonblank_tile() {
 #[cfg(feature = "pdf-engine")]
 #[test]
 fn cancelled_pdf_raster_stops_before_producing_a_tile() {
-    use lege_viewer::document::ViewportPlanner;
-    use lege_viewer::document::engine::{DocumentEngineError, RasterPass};
-    use lege_viewer::document::pdf_engine::PdfEngine;
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::document::ViewportPlanner;
+    use liminaldoc_reader::document::engine::{DocumentEngineError, RasterPass};
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine = PdfEngine::open(viewer_pdf_fixture(), None).expect("open cancellation fixture");
     let layout = PageLayoutIndex::build(
@@ -1349,11 +1349,11 @@ fn cancelled_pdf_raster_stops_before_producing_a_tile() {
 #[cfg(feature = "pdf-engine")]
 #[test]
 fn real_pdf_conductor_reaches_the_tile_cache_without_blocking_the_caller() {
-    use lege_viewer::document::pdf_engine::PdfEngine;
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, SessionUpdate, TileCache, UpdateQueue, ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let started = Instant::now();
     let engine: Arc<dyn DocumentEngine> = Arc::new(
@@ -1428,54 +1428,58 @@ struct BrokenPageEngine {
 }
 
 struct BrokenCompileWorker {
-    inner: Box<dyn lege_viewer::document::engine::DocumentCompileWorker>,
+    inner: Box<dyn liminaldoc_reader::document::engine::DocumentCompileWorker>,
     broken: PageIndex,
 }
 
-impl lege_viewer::document::engine::DocumentCompileWorker for BrokenCompileWorker {
+impl liminaldoc_reader::document::engine::DocumentCompileWorker for BrokenCompileWorker {
     fn compile_page(
         &mut self,
         page: PageIndex,
-        page_to_doc: lege_viewer::geometry::Affine,
+        page_to_doc: liminaldoc_reader::geometry::Affine,
         cancellation: &CancellationFlag,
     ) -> Result<
-        Arc<lege_viewer::document::engine::CompiledArtifacts>,
-        lege_viewer::document::engine::DocumentEngineError,
+        Arc<liminaldoc_reader::document::engine::CompiledArtifacts>,
+        liminaldoc_reader::document::engine::DocumentEngineError,
     > {
         if page == self.broken {
-            return Err(lege_viewer::document::engine::DocumentEngineError::Engine(
-                "synthetic page defect".to_owned(),
-            ));
+            return Err(
+                liminaldoc_reader::document::engine::DocumentEngineError::Engine(
+                    "synthetic page defect".to_owned(),
+                ),
+            );
         }
         self.inner.compile_page(page, page_to_doc, cancellation)
     }
 }
 
 impl DocumentEngine for BrokenPageEngine {
-    fn descriptor(&self) -> &lege_viewer::document::engine::DocumentDescriptor {
+    fn descriptor(&self) -> &liminaldoc_reader::document::engine::DocumentDescriptor {
         self.inner.descriptor()
     }
 
     fn create_compile_worker(
         &self,
-    ) -> Box<dyn lege_viewer::document::engine::DocumentCompileWorker> {
+    ) -> Box<dyn liminaldoc_reader::document::engine::DocumentCompileWorker> {
         Box::new(BrokenCompileWorker {
             inner: self.inner.create_compile_worker(),
             broken: self.broken,
         })
     }
 
-    fn create_raster_worker(&self) -> Box<dyn lege_viewer::document::engine::DocumentRasterWorker> {
+    fn create_raster_worker(
+        &self,
+    ) -> Box<dyn liminaldoc_reader::document::engine::DocumentRasterWorker> {
         self.inner.create_raster_worker()
     }
 }
 
 #[test]
 fn a_broken_page_is_reported_set_aside_and_does_not_stop_the_document() {
-    use lege_viewer::document::{
+    use liminaldoc_reader::document::{
         ConductorHandle, MemoryArbiter, SessionUpdate, TileCache, UpdateQueue, ViewportPlanner,
     };
-    use lege_viewer::geometry::Vec2d;
+    use liminaldoc_reader::geometry::Vec2d;
 
     let engine: Arc<dyn DocumentEngine> = Arc::new(BrokenPageEngine {
         inner: SyntheticEngine::new(8),
@@ -1570,7 +1574,7 @@ fn a_broken_page_is_reported_set_aside_and_does_not_stop_the_document() {
 #[cfg(feature = "pdf-engine")]
 fn encrypted_pdf_fixture(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../lege-pdf/render/crates/pdf-document/tests/fixtures")
+        .join("../../../Lege-ecosystem/lege-pdf/render/crates/pdf-document/tests/fixtures")
         .join(name)
 }
 
@@ -1579,8 +1583,8 @@ fn encrypted_pdf_fixture(name: &str) -> std::path::PathBuf {
 #[cfg(feature = "pdf-engine")]
 #[test]
 fn an_encrypted_document_asks_for_a_password_rather_than_failing_to_open() {
-    use lege_viewer::document::engine::DocumentEngineError;
-    use lege_viewer::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::document::engine::DocumentEngineError;
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
 
     // PDFium's own fixture; user password "hôtel".
     let path = encrypted_pdf_fixture("encrypted_hello_world_r3.pdf");
@@ -1606,8 +1610,8 @@ fn an_encrypted_document_asks_for_a_password_rather_than_failing_to_open() {
 #[cfg(feature = "pdf-engine")]
 #[test]
 fn a_malformed_document_is_not_reported_as_needing_a_password() {
-    use lege_viewer::document::engine::DocumentEngineError;
-    use lege_viewer::document::pdf_engine::PdfEngine;
+    use liminaldoc_reader::document::engine::DocumentEngineError;
+    use liminaldoc_reader::document::pdf_engine::PdfEngine;
     use std::io::Write;
 
     let mut file = tempfile::NamedTempFile::new().expect("temporary file");

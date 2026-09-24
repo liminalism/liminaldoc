@@ -6,15 +6,15 @@
 
 use std::sync::Arc;
 
-use lege_viewer::ViewerApp;
-use lege_viewer::cli::{LaunchMode, USAGE, parse_launch_config};
-use lege_viewer::document::empty::EmptyEngine;
-use lege_viewer::document::engine::DocumentEngine;
+use liminaldoc_reader::ViewerApp;
+use liminaldoc_reader::cli::{LaunchMode, USAGE, parse_launch_config};
+use liminaldoc_reader::document::empty::EmptyEngine;
+use liminaldoc_reader::document::engine::DocumentEngine;
 #[cfg(feature = "pdf-engine")]
-use lege_viewer::document::engine::DocumentEngineError;
-use lege_viewer::document::session::{UpdateQueue, WakeSink};
-use lege_viewer::document::synthetic::SyntheticEngine;
-use lege_viewer::event::ViewerEvent;
+use liminaldoc_reader::document::engine::DocumentEngineError;
+use liminaldoc_reader::document::session::{UpdateQueue, WakeSink};
+use liminaldoc_reader::document::synthetic::SyntheticEngine;
+use liminaldoc_reader::event::ViewerEvent;
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
 struct WinitWake {
@@ -102,7 +102,7 @@ fn open_engine(mode: LaunchMode) -> Result<Startup, Box<dyn std::error::Error>> 
         LaunchMode::Pdf(path) => {
             #[cfg(feature = "pdf-engine")]
             {
-                match lege_viewer::document::pdf_engine::PdfEngine::open(&path, None) {
+                match liminaldoc_reader::document::pdf_engine::PdfEngine::open(&path, None) {
                     Ok(engine) => Ok(Startup::Ready(Arc::new(engine))),
                     Err(DocumentEngineError::PasswordRequired) => Ok(Startup::NeedsPassword(path)),
                     Err(error) => {

@@ -9,7 +9,7 @@ use docwrite_typeset::{Face, GlyphAtlas, book_of_pages};
 
 fn noto() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
     std::fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 

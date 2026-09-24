@@ -423,7 +423,9 @@ impl Editor {
                         };
                         match result {
                             Ok(count) => {
-                                eprintln!("liminaldoc-writer: imported {count} bibliography entries");
+                                eprintln!(
+                                    "liminaldoc-writer: imported {count} bibliography entries"
+                                );
                                 self.edited();
                             }
                             Err(err) => eprintln!("liminaldoc-writer: {path}: {err}"),

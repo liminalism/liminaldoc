@@ -97,15 +97,15 @@ fallback, and either presenter can display both routes.
 Open a PDF:
 
 ```text
-cargo run -p lege-viewer -- document.pdf
+cargo run -p liminaldoc-reader -- document.pdf
 ```
 
 `--presenter auto` is the default. The explicit modes are useful for
 certification and diagnosis:
 
 ```text
-cargo run -p lege-viewer -- --presenter gpu document.pdf
-cargo run -p lege-viewer -- --presenter software document.pdf
+cargo run -p liminaldoc-reader -- --presenter gpu document.pdf
+cargo run -p liminaldoc-reader -- --presenter software document.pdf
 ```
 
 `gpu` is strict and exits with a controlled error if GPU presentation cannot
@@ -115,8 +115,8 @@ it switches to software.
 PDF image rendering has a separate experimental policy:
 
 ```text
-LEGE_PDF_IMAGE_RENDERER=gpu cargo run -p lege-viewer -- document.pdf
-LEGE_PDF_IMAGE_RENDERER=auto cargo run -p lege-viewer -- document.pdf
+LEGE_PDF_IMAGE_RENDERER=gpu cargo run -p liminaldoc-reader -- document.pdf
+LEGE_PDF_IMAGE_RENDERER=auto cargo run -p liminaldoc-reader -- document.pdf
 ```
 
 The unset/default value is `cpu`. This policy affects eligible decoded-image
@@ -128,8 +128,8 @@ structural tiles do not wait for adapter initialization.
 Run the deterministic synthetic reference:
 
 ```text
-cargo run -p lege-viewer -- --synthetic
-cargo run -p lege-viewer -- --synthetic 25000
+cargo run -p liminaldoc-reader -- --synthetic
+cargo run -p liminaldoc-reader -- --synthetic 25000
 ```
 
 Set `LEGE_VIEWER_GPU_DIAGNOSTICS=1` to print the selected adapter/backend,
@@ -161,8 +161,8 @@ document origin.
 ## Verify
 
 ```text
-cargo test -p lege-viewer --all-targets
-cargo clippy -p lege-viewer --all-targets --no-deps -- -D warnings
+cargo test -p liminaldoc-reader --all-targets
+cargo clippy -p liminaldoc-reader --all-targets --no-deps -- -D warnings
 cargo test -p lege-gpu --features presentation presentation::tests
 ```
 

@@ -31,16 +31,16 @@ unicode-segmentation = "1.12"
 # carry over into this workspace. The ecosystem declares both by path, so they
 # need no repeating here; if a transitive git-sourced codec dependency ever
 # appears, it must be re-patched in this manifest.
-lege-pdf-write = { path = "../lege-pdf/write" }
-lege-pdf-read = { path = "../lege-pdf/read" }
-pdf-font = { path = "../lege-pdf/render/crates/pdf-font" }
-pdf-text = { path = "../lege-pdf/render/crates/pdf-text" }
+lege-pdf-write = { path = "../Lege-ecosystem/lege-pdf/write" }
+lege-pdf-read = { path = "../Lege-ecosystem/lege-pdf/read" }
+pdf-font = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-font" }
+pdf-text = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-text" }
 
 # pixelkit: sibling repository next to Lege-ecosystem, path-only.
-pixelkit-raster = { path = "../../pixelkit/crates/pixelkit-raster" }
-pixelkit-text = { path = "../../pixelkit/crates/pixelkit-text" }
-pixelkit-shell = { path = "../../pixelkit/crates/pixelkit-shell" }
-pixelkit-ui = { path = "../../pixelkit/crates/pixelkit-ui" }
+pixelkit-raster = { path = "../pixelkit/crates/pixelkit-raster" }
+pixelkit-text = { path = "../pixelkit/crates/pixelkit-text" }
+pixelkit-shell = { path = "../pixelkit/crates/pixelkit-shell" }
+pixelkit-ui = { path = "../pixelkit/crates/pixelkit-ui" }
 
 # Native reader dependencies. The backend remains a separate executable so
 # writer startup never creates PDF workers, caches or a presenter.
@@ -55,15 +55,15 @@ open = "5.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 softbuffer = "0.4.8"
-pdf-source = { path = "../lege-pdf/render/crates/pdf-source" }
-pdf-document = { path = "../lege-pdf/render/crates/pdf-document" }
-pdf-security = { path = "../lege-pdf/render/crates/pdf-security" }
-pdf-content = { path = "../lege-pdf/render/crates/pdf-content" }
-pdf-page-ir = { path = "../lege-pdf/render/crates/pdf-page-ir" }
-pdf-render-api = { path = "../lege-pdf/render/crates/pdf-render-api" }
-pdf-render-cpu = { path = "../lege-pdf/render/crates/pdf-render-cpu" }
-pdf-render-wgpu = { path = "../lege-pdf/render/crates/pdf-render-wgpu" }
-pdf-test-support = { path = "../lege-pdf/render/crates/pdf-test-support" }
+pdf-source = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-source" }
+pdf-document = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-document" }
+pdf-security = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-security" }
+pdf-content = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-content" }
+pdf-page-ir = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-page-ir" }
+pdf-render-api = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-render-api" }
+pdf-render-cpu = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-render-cpu" }
+pdf-render-wgpu = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-render-wgpu" }
+pdf-test-support = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-test-support" }
 
 [workspace.lints.rust]
 unsafe_code = "warn"

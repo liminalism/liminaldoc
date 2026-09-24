@@ -23,6 +23,17 @@ record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : paperc
     created_at 2026-09-24
 }
 
+record docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 : papercut {
+    title "Extracted reader initially inherited the writer workspace…"
+    state verified
+    statement """
+        Extracted reader initially inherited the writer workspace unsafe_code=forbid lint; its existing Unix process termination block needs the viewer unsafe policy. The combined workspace uses warn and the reader build now passes.
+        """
+    observed_at git:4e0773fa5d276e88cdd12d2ba4328ee4d19ca7ba
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 : papercut {
     title "knowledge_start via the MCP server attached at the projects workspace…"
     state verified

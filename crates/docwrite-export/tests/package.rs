@@ -11,7 +11,7 @@ use lege_pdf_read::{RenderSession, page_text, positioned_words};
 
 fn font() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
     std::fs::read(path).unwrap()
 }
 
