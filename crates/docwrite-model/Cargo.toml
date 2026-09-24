@@ -1,0 +1,16 @@
+[package]
+name = "docwrite-model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Canonical book model: tree, blocks, runs, styles, page masters, chapter templates, edit transactions"
+
+[dependencies]
+ropey = { workspace = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+unicode-segmentation = { workspace = true }
+
+[lints]
+workspace = true

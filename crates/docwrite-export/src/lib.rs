@@ -1,0 +1,90 @@
+//! PDF, Markdown and IDML export, plus preflight.
+
+mod idml;
+mod markdown;
+mod pdf;
+mod preflight;
+
+pub use idml::export_idml;
+pub use markdown::export_markdown;
+pub use pdf::{PdfExport, export_pdf, export_pdf_family};
+pub use preflight::{AssetFacts, PreflightReport, preflight};
+
+use docwrite_model::{BlockKind, Book};
+
+/// One exportable block, flattened from the book in reading order.
+#[derive(Clone, Debug)]
+pub struct ExportBlock {
+    /// Paragraph kind: heading, quote, image, caption or paragraph.
+    pub kind: String,
+    /// The text.
+    pub text: String,
+    /// Some run is bold.
+    pub bold: bool,
+    /// Some run is italic.
+    pub italic: bool,
+    /// The first link target, if any.
+    pub link: Option<String>,
+    /// The note attached to the block, if any.
+    pub note: Option<String>,
+    /// The chapter it is in.
+    pub chapter: String,
+    /// Character runs over `text` (character ranges) with their marks.
+    pub runs: Vec<docwrite_model::Run>,
+}
+
+/// Every block of the book, chapter titles included, in reading order.
+pub fn blocks_of(book: &Book) -> Vec<ExportBlock> {
+    let mut out = Vec::new();
+    for part in book.parts() {
+        for chapter in part.chapters() {
+            let titled = chapter
+                .sections()
+                .iter()
+                .flat_map(|section| section.blocks())
+                .next()
+                .is_some_and(|block| matches!(block.kind(), BlockKind::ChapterTitle));
+            if !titled && !chapter.title().is_empty() {
+                // The title is chapter metadata; it heads the chapter in
+                // every export, as it does on the opener page.
+                out.push(ExportBlock {
+                    kind: "heading".into(),
+                    text: chapter.title().to_string(),
+                    bold: false,
+                    italic: false,
+                    link: None,
+                    note: None,
+                    chapter: chapter.title().to_string(),
+                    runs: Vec::new(),
+                });
+            }
+            for section in chapter.sections() {
+                for block in section.blocks() {
+                    let bold = block.runs().iter().any(|run| run.marks.bold);
+                    let italic = block.runs().iter().any(|run| run.marks.italic);
+                    let link = block.runs().iter().find_map(|run| run.marks.link.clone());
+                    out.push(ExportBlock {
+                        kind: match block.kind() {
+                            BlockKind::ChapterTitle => "heading".into(),
+                            BlockKind::Subhead => "heading".into(),
+                            BlockKind::BlockQuote => "quote".into(),
+                            BlockKind::Image { .. } => "image".into(),
+                            BlockKind::Caption => "caption".into(),
+                            _ => "paragraph".into(),
+                        },
+                        text: block.text(),
+                        bold,
+                        italic,
+                        link,
+                        note: block
+                            .note()
+                            .and_then(|id| book.note(id).ok().map(|note| note.text())),
+                        chapter: chapter.title().to_string(),
+                        runs: block.runs().to_vec(),
+                    });
+                }
+            }
+        }
+    }
+    out
+}

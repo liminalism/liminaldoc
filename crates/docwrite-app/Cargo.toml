@@ -1,0 +1,30 @@
+[package]
+name = "docwrite-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The Liminaldoc page-native writer backend"
+
+[lib]
+name = "docwrite_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "liminaldoc-writer"
+path = "src/main.rs"
+
+[dependencies]
+docwrite-model = { workspace = true }
+docwrite-typeset = { workspace = true }
+docwrite-export = { workspace = true }
+pixelkit-raster = { workspace = true }
+lege-pdf-read = { workspace = true }
+pixelkit-shell = { workspace = true }
+rfd = { path = "../../../lege-process/GUI/rfd" }
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+quick-xml = "0.41.0"
+docx-rust = "0.1.11"
+
+[lints]
+workspace = true

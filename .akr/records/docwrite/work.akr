@@ -1,0 +1,280 @@
+akr 0.1
+project lege-docwrite
+
+record docwrite.work.m1-incremental-pagination/1 : work {
+    title "Incremental pagination with convergence stop"
+    state completed
+    intent """
+        Paginate forward from the edited paragraph until break positions match the cached layout; count laid-out pages for the convergence test.
+        """
+    part_of [ @docwrite.milestone.m1-editor-spike ]
+}
+
+record docwrite.work.m1-latency-gate/1 : work {
+    title "Keypress-to-present instrumentation and regression gate"
+    state completed
+    intent """
+        Port lege-viewer's FrameMetrics and input-trace replay; add a test that replays a typing trace against a 500-page document and fails over budget.
+        """
+    acceptance {
+        check typing-trace {
+            statement """
+                Replaying page motion and keypresses on a 500-page document stays inside the 8ms budget, and each keypress lays out only the edited page and the next.
+                """
+            method command
+            command "cargo test -p docwrite-app --test latency_gate"
+            verified_by [ @docwrite.evidence.typing-trace/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m1-editor-spike ]
+}
+
+record docwrite.work.m1-model-and-edits/1 : work {
+    title "Book model skeleton, rope-backed blocks, edit transactions and undo"
+    state completed
+    intent """
+        Implement stable block IDs, a minimal Book/Chapter/Block/Run tree with ropey-backed text, and transactional edits with undo/redo, including the footnote slot in the model.
+        """
+    part_of [ @docwrite.milestone.m1-editor-spike ]
+}
+
+record docwrite.work.m1-page-canvas-navigation/1 : work {
+    title "Page canvas, caret/selection painting and exact navigation"
+    state completed
+    intent """
+        Stacked-page canvas with damage tracking; exact PageUp/PageDown, spread mode, snap on gesture end; ReadingAnchor ported from lege-viewer.
+        """
+    acceptance {
+        check selection-highlight {
+            statement """
+                Extending the caret paints a highlight behind the selected glyphs. A collapsed caret leaves no highlight.
+                """
+            method command
+            command "cargo test -p docwrite-app --test selection"
+            verified_by [ @docwrite.evidence.selection-highlight/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m1-editor-spike ]
+}
+
+record docwrite.work.m1-shaping-and-breaking/1 : work {
+    title "Shaping, line breaking and per-glyph atlas"
+    state completed
+    intent """
+        Integrate harfrust, skrifa, unicode-linebreak/segmentation/bidi; cache shaped paragraphs per block; rasterize glyphs through pixelkit RasterKernel into a glyph atlas.
+        """
+    part_of [ @docwrite.milestone.m1-editor-spike ]
+}
+
+record docwrite.work.m2-book-map/1 : work {
+    title "Book Map sidebar with collapse and drag reorder"
+    state completed
+    intent """
+        Left sidebar listing front matter, parts, chapters, sections and back matter; drag reorder reorders the book.
+        """
+    acceptance {
+        check drag-reorder {
+            statement """
+                Dragging one chapter row onto another reorders that chapter. Collapsing a part hides its chapters. Front matter and back matter stay listed, and a drag inside the body leaves front matter in its own part.
+                """
+            method command
+            command "cargo test -p docwrite-app --test book_map"
+            verified_by [ @docwrite.evidence.book-map-drag/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m2-book-core ]
+}
+
+record docwrite.work.m2-markdown-export/1 : work {
+    title "Markdown export"
+    state completed
+    intent """
+        Emit headings, emphasis, block quotes, images, links and footnotes; discard geometry.
+        """
+    part_of [ @docwrite.milestone.m2-book-core ]
+}
+
+record docwrite.work.m2-pdf-export/1 : work {
+    title "PDF export through lege-pdf-write"
+    state completed
+    intent """
+        Emit shaped glyph runs, subset fonts, ToUnicode, bookmarks and page labels using the upgraded lege-pdf-write.
+        """
+    part_of [ @docwrite.milestone.m2-book-core ]
+}
+
+record docwrite.work.m2-persistence/1 : work {
+    title ".legebook bundle, atomic autosave and snapshots"
+    state completed
+    intent """
+        Choose the serialization, write per-chapter files atomically, autosave off the typing path, and add named snapshots.
+        """
+    acceptance {
+        check autosave-off-path {
+            statement """
+                Typing does not write the .legebook bundle. A separate autosave does, and restoring the named snapshot drops the keystrokes that came after it.
+                """
+            method command
+            command "cargo test -p docwrite-app --test book_map typing_does_not_write_the_bundle_until_autosave"
+            verified_by [ @docwrite.evidence.autosave-off-path/1 ]
+        }
+        check snapshot-reopen {
+            statement """
+                A named snapshot reopens the earlier manuscript, body size, template opener, and selection. The live bundle keeps the later edit.
+                """
+            method command
+            command "cargo test -p docwrite-model --test persistence"
+            verified_by [ @docwrite.evidence.autosave-snapshot/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m2-book-core ]
+}
+
+record docwrite.work.m2-styles-masters-templates/1 : work {
+    title "Paragraph/character styles, page masters and chapter templates"
+    state completed
+    intent """
+        Implement the three systems, facing pages, margins, folios, running heads and recto starts, with template edits propagating to all chapters.
+        """
+    acceptance {
+        check facing-recto {
+            statement """
+                A facing verso uses the outer margin, a NextRecto chapter opens on an odd page, and the blank verso keeps its folio and running head even while a footnote carry is pending.
+                """
+            method command
+            command "cargo test -p docwrite-typeset --test book_layout"
+            verified_by [ @docwrite.evidence.facing-recto/1 ]
+        }
+        check template-propagates {
+            statement """
+                One template edit changes the opener of all ten chapters, and reopening restores that template.
+                """
+            method command
+            command "cargo test -p docwrite-model --test persistence -- ten_chapters_follow_one_template_and_reorder_and_reopen"
+            verified_by [ @docwrite.evidence.template-propagates/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m2-book-core ]
+}
+
+record docwrite.work.m6-chapter-start-and-masters/1 : work {
+    title "Honour NextPage starts and per-chapter page masters"
+    state completed
+    intent """
+        Only NextRecto is a page break today and layout_inputs takes one geometry from the Chapter template; make every chapter start rule a break and let each chapter's template choose its master.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m6-docs-and-clippy/1 : work {
+    title "Document the public API and run clippy"
+    state completed
+    intent """
+        About 170 missing_docs warnings remain across the crates, and clippy has not run because the pinned 1.97.1 toolchain lacks the component.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m6-drop-caps/1 : work {
+    title "Drop caps that span lines"
+    state completed
+    intent """
+        A drop cap is a larger first glyph on the first baseline; set it across drop_cap_lines lines with the following lines indented around it, on screen and in PDF.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m6-glyph-atlas/1 : work {
+    title "Glyph atlas sized to the glyph, with the face in the key"
+    state completed
+    intent """
+        GlyphAtlas rasterizes every glyph into a fixed 64x64 cell and the window draws it at baseline-48, so large sizes and descenders clip; size cells from the glyph bounds, keep the origin with the entry, and key on the face.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m6-measured-footnotes/1 : work {
+    title "Measure footnotes into the page"
+    state completed
+    intent """
+        split_note cuts notes at 48 characters and fill_page reserves one body leading for them; shape notes at footnote size, reserve their measured height, split by lines, and keep incremental convergence exact.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m6-window-chapter-commands/1 : work {
+    title "Chapter and style commands in the window"
+    state completed
+    intent """
+        The model can add, rename and reorder chapters and change styles, but the window only reorders by dragging; add new-chapter, rename and body-style commands, and a small toolbar.
+        """
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+}
+
+record docwrite.work.m7-bidi/1 : work {
+    title "Right-to-left and mixed-direction text"
+    state proposed
+    intent """
+        unicode-bidi is a dependency but paragraphs are shaped left to right; resolve embedding levels, shape runs in their direction and reorder lines for display, caret and PDF.
+        """
+    part_of [ @docwrite.milestone.m7-open-items ]
+}
+
+record docwrite.work.m7-epub/1 : work {
+    title "EPUB export, if it proves useful"
+    state proposed
+    intent """
+        Markdown and PDF cover the semantic and print paths; an EPUB 3 package from the same blocks and styles is optional.
+        """
+    part_of [ @docwrite.milestone.m7-open-items ]
+}
+
+record docwrite.work.m7-idml-spreads/1 : work {
+    title "IDML with spreads and threaded text frames"
+    state proposed
+    intent """
+        export_idml writes a design map, styles, one master spread and the story, but no spreads or text frames, so InDesign has nowhere to flow the story; emit spreads per page pair with threaded frames on the master's text area. Not yet opened in InDesign.
+        """
+    part_of [ @docwrite.milestone.m7-open-items ]
+}
+
+record docwrite.work.m7-images/1 : work {
+    title "Place images in the page flow"
+    state proposed
+    intent """
+        Image blocks lay out as text today; read the asset's size, place it full-measure or inline with its caption kept with it, draw it on screen and embed it in the PDF (JPEG/PNG through lege-pdf-write).
+        """
+    part_of [ @docwrite.milestone.m7-open-items ]
+}
+
+record docwrite.work.m7-pdf-links/1 : work {
+    title "PDF link annotations and named destinations"
+    state proposed
+    intent """
+        Links and citations are plain text in the PDF; add link annotations (URIs, and internal destinations for contents, index and citations) to lege-pdf-write and use them.
+        """
+    part_of [ @docwrite.milestone.m7-open-items ]
+}
+
+record docwrite.work.pdf-document-tab/1 : work {
+    title "PDF document tab alongside manuscript tabs"
+    state proposed
+    intent """
+        After the manuscript New/Open/Save and writing-ready paths are reliable, add a
+        PDF tab alongside editable document tabs. A PDF tab keeps its own page position,
+        zoom, search and selection, and routes keyboard, pointer, scroll and IME input
+        only to the active surface. Reuse the Lege PDF engine and viewer behaviour by
+        extracting a host-independent PDF view/controller; do not embed ViewerApp's
+        separate winit event loop or treat a source pane as the PDF tab.
+        """
+    note """
+        Scope investigation on 2026-09-24: lege-viewer::ViewerApp owns its Window,
+        Presenter, ApplicationHandler, tile cache, worker updates and password UI.
+        Its PdfEngine implements DocumentEngine and can supply page geometry and
+        artifacts, but a shared tab host needs a surface adapter plus wake, damage,
+        resize and input contracts. A first implementation should preserve per-tab
+        state and cover encrypted PDFs, switching during rendering, and independent
+        PDF/document presentation. No PDF tab implementation is part of the
+        current New/Open/Save work.
+        """
+}

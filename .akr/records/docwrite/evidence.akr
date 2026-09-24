@@ -1,0 +1,524 @@
+akr 0.1
+project lege-docwrite
+
+record docwrite.evidence.autosave-off-path/1 : evidence {
+    title "Typing does not create the bundle. Autosave writes it. Restoring the named snapshot drops the keystrokes that came after the snapshot."
+    state verified
+    result pass
+    method command
+    observed_at git:fe9fbbe24d9ea661363b36b90ce78b4e946416f9
+    command "cargo test -p docwrite-app --test book_map typing_does_not_write_the_bundle_until_autosave"
+    summary """
+        Typing does not create the bundle. Autosave writes it. Restoring the named snapshot drops the keystrokes that came after the snapshot.
+        """
+}
+
+record docwrite.evidence.autosave-snapshot/1 : evidence {
+    title "A named snapshot reopens the earlier manuscript, Body size, template opener, and a non-collapsed selection. The live bundle keeps the later edit. Typing does not write the bundle until autosave."
+    state verified
+    result pass
+    method command
+    observed_at git:fe9fbbe24d9ea661363b36b90ce78b4e946416f9
+    command "cargo test -p docwrite-model --test persistence"
+    summary """
+        A named snapshot reopens the earlier manuscript, Body size, template opener, and a non-collapsed selection. The live bundle keeps the later edit. Typing does not write the bundle until autosave.
+        """
+}
+
+record docwrite.evidence.book-map-drag/1 : evidence {
+    title "Dragging a chapter row reorders that chapter inside its part. Collapsing the body hides its chapters. Front matter and back matter stay listed, and a body drag leaves the preface in front matter."
+    state verified
+    result pass
+    method command
+    observed_at git:fe9fbbe24d9ea661363b36b90ce78b4e946416f9
+    command "cargo test -p docwrite-app --test book_map"
+    summary """
+        Dragging a chapter row reorders that chapter inside its part. Collapsing the body hides its chapters. Front matter and back matter stay listed, and a body drag leaves the preface in front matter.
+        """
+}
+
+record docwrite.evidence.chapter-rules-and-masters/1 : evidence {
+    title "NextPage chapters start a page; each chapter uses its template's master"
+    state verified
+    result pass
+    method command
+    observed_at git:987c32fee7cb49205649306dd7c7a89fb6976efe
+    command "cargo test -p docwrite-typeset --test book_layout"
+    summary """
+        A NextPage chapter opens the very next page; a chapter on an Appendix template
+        takes its master's margins (inset per facing side), measure and running-head
+        rule, while chapter one keeps its own. NextRecto still blanks a verso, with a
+        pending footnote carried across it.
+        """
+}
+
+record docwrite.evidence.editor-commands/1 : evidence {
+    title "The window's commands work: clipboard, undo, line motion across pages, click, save, autosave, export, CLI export"
+    state verified
+    result pass
+    method command
+    observed_at git:bffd54a79de1aeac643880dc02c48c95b33aa77c
+    command "cargo test -p docwrite-app --test commands"
+    summary """
+        Four tests cover cut/copy/paste with undo/redo, Up/Down by typeset line across a
+        page turn, click-to-caret, and open_or_create + save_now + background autosave +
+        PDF/Markdown export + the headless 'lege-docwrite export' subcommand. The window
+        was also launched on macOS against a demo bundle and screenshot: the opener shows
+        its chapter title, the Book Map shows titles, and the page fills the view.
+        """
+}
+
+record docwrite.evidence.editor-latency-release/1 : evidence {
+    title "Typing through Editor into a 507-page book: one paragraph shaped, at most three pages laid out, p50 4.4 ms, max 4.9 ms (release)"
+    state verified
+    result pass
+    method command
+    observed_at git:bffd54a79de1aeac643880dc02c48c95b33aa77c
+    command "cargo test --release -p docwrite-app --test latency_gate -- --nocapture"
+    summary """
+        typing_into_the_editor_stays_inside_the_budget types at the start, middle and end
+        of a 507-page book through Editor::type_text + Editor::paint (1100x800). Every
+        keystroke shaped exactly one paragraph and laid out at most three pages; wall
+        clock p50 4.43 ms, max 4.95 ms against the 8 ms budget; opening the book 67 ms.
+        Debug builds assert the work counts only.
+        """
+}
+
+record docwrite.evidence.editor-latency-release-2026-09-24/1 : evidence {
+    title "Typing through Editor into a 550-page book: p50 1.94 ms, max 2.21 ms (release)"
+    state verified
+    result pass
+    method command
+    observed_at git:987c32fee7cb49205649306dd7c7a89fb6976efe
+    command "cargo test --release -p docwrite-app --test latency_gate -- --nocapture"
+    summary """
+        With the font family, justification and styled paragraphs in place, typing at the
+        start, middle and end of a 550-page book shaped one paragraph and laid out at most
+        three pages per key; keypress-to-present p50 1.94 ms, max 2.21 ms against 8 ms;
+        opening 42 ms.
+        """
+}
+
+record docwrite.evidence.facing-recto/1 : evidence {
+    title "Recto inset 54, verso inset 20. Blank verso page 2 keeps folio 2 and running head Chapter 1. With a 49-character footnote still pending, page 2 stays blank and Two. opens on page 3; the note reassembles after edit_page."
+    state verified
+    result pass
+    method command
+    observed_at git:05ae64374331a685c7f9185e94976fd52c1f701a
+    command "cargo test -p docwrite-typeset --test book_layout"
+    summary """
+        Recto inset 54, verso inset 20. Blank verso page 2 keeps folio 2 and running head Chapter 1. With a 49-character footnote still pending, page 2 stays blank and Two. opens on page 3; the note reassembles after edit_page.
+        """
+}
+
+record docwrite.evidence.head-blank-verso/1 : evidence {
+    title "With a 49-character footnote still pending, page 2 stays blank and Two. opens on page 3. The note slices reassemble after edit_page."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test book_layout"
+    summary """
+        With a 49-character footnote still pending, page 2 stays blank and Two. opens on page 3. The note slices reassemble after edit_page.
+        """
+}
+
+record docwrite.evidence.head-edits/1 : evidence {
+    title "Edit tests round-trip insert, delete, and undo. Ten chapters follow the Lesson opener and reopen restores Body at 14pt and the caret."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-model"
+    summary """
+        Edit tests round-trip insert, delete, and undo. Ten chapters follow the Lesson opener and reopen restores Body at 14pt and the caret.
+        """
+}
+
+record docwrite.evidence.head-exports/1 : evidence {
+    title "Markdown keeps the title and the link and drops page geometry. The PDF citation resolves to page 0 with highlight rects [[72.0, -90.0, 198.0, -72.0]] for Chapter. Tagged PDF has /Lang and /StructTreeRoot. Subset font is 9184 bytes against a 512672-byte face. IDML contains styles, parent pages, a threaded story, an anchored image, and footnotes."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-export"
+    summary """
+        Markdown keeps the title and the link and drops page geometry. The PDF citation resolves to page 0 with highlight rects [[72.0, -90.0, 198.0, -72.0]] for Chapter. Tagged PDF has /Lang and /StructTreeRoot. Subset font is 9184 bytes against a 512672-byte face. IDML contains styles, parent pages, a threaded story, an anchored image, and footnotes.
+        """
+}
+
+record docwrite.evidence.head-footnotes/1 : evidence {
+    title "A long footnote splits into 6 pieces and reassembles on the reference page."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test footnotes"
+    summary """
+        A long footnote splits into 6 pieces and reassembles on the reference page.
+        """
+}
+
+record docwrite.evidence.head-incremental/1 : evidence {
+    title "Page 147 of 400 laid out [147]. Every rebuilt page is below 149 and page 400 is unchanged."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test incremental"
+    summary """
+        Page 147 of 400 laid out [147]. Every rebuilt page is below 149 and page 400 is unchanged.
+        """
+}
+
+record docwrite.evidence.head-latency/1 : evidence {
+    title "A 46-frame typing trace on a 500-page document stays inside the 8ms keypress budget."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-app --test latency_gate"
+    summary """
+        A 46-frame typing trace on a 500-page document stays inside the 8ms keypress budget.
+        """
+}
+
+record docwrite.evidence.head-navigation/1 : evidence {
+    title "Page Down and Page Up land on page tops, a spread gesture snaps, and paint lays out at least one page of the manuscript."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-app --test navigation"
+    summary """
+        Page Down and Page Up land on page tops, a spread gesture snaps, and paint lays out at least one page of the manuscript.
+        """
+}
+
+record docwrite.evidence.head-persistence/1 : evidence {
+    title "Ten chapters follow the Lesson opener. Reopen restores Body at 14pt, opener Lesson, and the caret."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-model --test persistence"
+    summary """
+        Ten chapters follow the Lesson opener. Reopen restores Body at 14pt, opener Lesson, and the caret.
+        """
+}
+
+record docwrite.evidence.head-preflight/1 : evidence {
+    title "Preflight reports missing font Noto Sans, unembeddable Body, low-resolution image plate, and broken reference missing-figure."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-export --test preflight"
+    summary """
+        Preflight reports missing font Noto Sans, unembeddable Body, low-resolution image plate, and broken reference missing-figure.
+        """
+}
+
+record docwrite.evidence.head-restyle/1 : evidence {
+    title "A body restyle at 18pt matches a fresh layout across 12 pages."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test restyle"
+    summary """
+        A body restyle at 18pt matches a fresh layout across 12 pages.
+        """
+}
+
+record docwrite.evidence.head-rules/1 : evidence {
+    title "Keep and widow violations are 0. Hyphenation, a 24em drop cap, OpenType small caps and old-style figures, and image-with-caption are present."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test paragraph_rules"
+    summary """
+        Keep and widow violations are 0. Hyphenation, a 24em drop cap, OpenType small caps and old-style figures, and image-with-caption are present.
+        """
+}
+
+record docwrite.evidence.head-source/1 : evidence {
+    title "A passage extracted from the exported PDF is cited and resolves to page 0, highlight rects [[72.0, -90.0, 198.0, -72.0]], passage Chapter."
+    state verified
+    result pass
+    method manual
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-export --test package"
+    summary """
+        A passage extracted from the exported PDF is cited and resolves to page 0, highlight rects [[72.0, -90.0, 198.0, -72.0]], passage Chapter.
+        """
+}
+
+record docwrite.evidence.head-toc/1 : evidence {
+    title "The contents move chapter Two from page 3 to page 5 after a cross-page insertion. One stays on page 1."
+    state verified
+    result pass
+    method command
+    observed_at git:5e5eba9741fb8cbc9d1447239eeb7c4bbb352763
+    command "cargo test -p docwrite-typeset --test toc"
+    summary """
+        The contents move chapter Two from page 3 to page 5 after a cross-page insertion. One stays on page 1.
+        """
+}
+
+record docwrite.evidence.incremental-matches-fresh/1 : evidence {
+    title "Incremental layout of real model edits matches a fresh layout page for page"
+    state verified
+    result pass
+    method command
+    observed_at git:bffd54a79de1aeac643880dc02c48c95b33aa77c
+    command "cargo test -p docwrite-typeset --test apply"
+    summary """
+        Typing, paragraph split and merge, a multi-page paste, undo/redo, a span delete,
+        emptying the last paragraph, chapter reorders and a chapter rename, applied
+        through update_from_book, each equal from_book of the same book (blank versos,
+        folios, running heads, lines, notes), with and without recto chapter starts.
+        """
+}
+
+record docwrite.evidence.m1-edit-basics/1 : evidence {
+    title "Insert, delete, selection, word motion, cut/copy/paste and undo/redo round-trip across paragraphs and chapters."
+    state verified
+    result pass
+    method command
+    observed_at git:49d373bd2500225971dcfd519615d8e0d85249d1
+    command "cargo test -p docwrite-model"
+    summary """
+        Insert, delete, selection, word motion, cut/copy/paste and undo/redo round-trip across paragraphs and chapters.
+        """
+}
+
+record docwrite.evidence.m1-incremental/1 : evidence {
+    title "An edit on page 147 of 400 lays out no page from 149 through 400."
+    state verified
+    result pass
+    method command
+    observed_at git:49d373bd2500225971dcfd519615d8e0d85249d1
+    command "cargo test -p docwrite-typeset --test incremental"
+    summary """
+        An edit on page 147 of 400 lays out no page from 149 through 400.
+        """
+}
+
+record docwrite.evidence.m1-latency/1 : evidence {
+    title "A 500-page document opens, pages and types inside the 8ms keypress budget."
+    state verified
+    result pass
+    method command
+    observed_at git:49d373bd2500225971dcfd519615d8e0d85249d1
+    command "cargo test -p docwrite-app --test latency_gate"
+    summary """
+        A 500-page document opens, pages and types inside the 8ms keypress budget.
+        """
+}
+
+record docwrite.evidence.m1-navigation/1 : evidence {
+    title "PageDown and PageUp land on page tops; spread mode moves by spread; gesture end snaps."
+    state verified
+    result pass
+    method command
+    observed_at git:49d373bd2500225971dcfd519615d8e0d85249d1
+    command "cargo test -p docwrite-app --test navigation"
+    summary """
+        PageDown and PageUp land on page tops; spread mode moves by spread; gesture end snaps.
+        """
+}
+
+record docwrite.evidence.m2-exports/1 : evidence {
+    title "PDF text extracts, chapter bookmarks and a subset font are present; Markdown keeps headings, emphasis, links and drops geometry."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-export"
+    summary """
+        PDF text extracts, chapter bookmarks and a subset font are present; Markdown keeps headings, emphasis, links and drops geometry.
+        """
+}
+
+record docwrite.evidence.m2-persistence/1 : evidence {
+    title "Reorder changes chapter order; reopen restores manuscript, Body size, template opener and caret. One template edit changes all ten openers."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-model --test persistence"
+    summary """
+        Reorder changes chapter order; reopen restores manuscript, Body size, template opener and caret. One template edit changes all ten openers.
+        """
+}
+
+record docwrite.evidence.m2-restyle/1 : evidence {
+    title "Restyling Body matches a fresh layout of the same paragraphs."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-typeset --test restyle"
+    summary """
+        Restyling Body matches a fresh layout of the same paragraphs.
+        """
+}
+
+record docwrite.evidence.m3-rules/1 : evidence {
+    title "Keep-with-next holds; small caps and old-style figures change glyph ids; drop caps, quotes, epigraphs, images and matter are in the corpus."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-typeset --test paragraph_rules"
+    summary """
+        Keep-with-next holds; small caps and old-style figures change glyph ids; drop caps, quotes, epigraphs, images and matter are in the corpus.
+        """
+}
+
+record docwrite.evidence.m3-toc/1 : evidence {
+    title "Inserting paragraphs before a chapter moves its contents page number."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-typeset --test toc"
+    summary """
+        Inserting paragraphs before a chapter moves its contents page number.
+        """
+}
+
+record docwrite.evidence.m4-footnotes/1 : evidence {
+    title "Footnotes stay on the reference page under an earlier edit, and a long note splits across later pages and reassembles."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-typeset --test footnotes"
+    summary """
+        Footnotes stay on the reference page under an earlier edit, and a long note splits across later pages and reassembles.
+        """
+}
+
+record docwrite.evidence.m4-source/1 : evidence {
+    title "A word captured from the exported PDF, with its page and rectangle, is cited and resolves to that same page and rectangle."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-export --test package pdf_is_searchable"
+    summary """
+        A word captured from the exported PDF, with its page and rectangle, is cited and resolves to that same page and rectangle.
+        """
+}
+
+record docwrite.evidence.m5-preflight/1 : evidence {
+    title "Preflight reports a missing face, an unembeddable font, a low-resolution image and a broken link."
+    state verified
+    result pass
+    method command
+    observed_at git:83c15026d4d08a2db30864deb1099969b632df23
+    command "cargo test -p docwrite-export --test preflight"
+    summary """
+        Preflight reports a missing face, an unembeddable font, a low-resolution image and a broken link.
+        """
+}
+
+record docwrite.evidence.m5-preflight-current/1 : evidence {
+    title "On f19325d, preflight reports a missing face, an unembeddable font, a 72 dpi image, and a broken link."
+    state verified
+    result pass
+    method command
+    observed_at git:f19325debdbc7b6299cafeba65e384bebdb2beab
+    command "cargo test -p docwrite-export --test preflight"
+    summary """
+        On f19325d, preflight reports a missing face, an unembeddable font, a 72 dpi image, and a broken link.
+        """
+}
+
+record docwrite.evidence.measured-footnotes/1 : evidence {
+    title "Footnotes are measured into the page and split by lines"
+    state verified
+    result pass
+    method command
+    observed_at git:987c32fee7cb49205649306dd7c7a89fb6976efe
+    command "cargo test -p docwrite-typeset --test footnotes"
+    summary """
+        A footnote takes its measured height from its reference page's text block (fewer
+        body lines than the same page without it), sits at the foot below a rule at
+        footnote size, and a long note continues on later pages line by line with every
+        word set once, in order; it stays on its reference page after an earlier edit.
+        """
+}
+
+record docwrite.evidence.pdf-renders-typeset-pages/1 : evidence {
+    title "Exported PDF renders the typeset pages with ink, one PDF page per layout page"
+    state verified
+    result pass
+    method command
+    observed_at git:bffd54a79de1aeac643880dc02c48c95b33aa77c
+    command "cargo test -p docwrite-export --test package"
+    summary """
+        pdf_pages_are_the_typeset_pages_and_visibly_inked renders page 1 of the export
+        through lege-pdf-read (over 2000 dark pixels), checks the PDF page count equals
+        the layout's, that page 1's text starts with the first typeset line in reading
+        order, and that the chapter bookmark exists.
+        """
+}
+
+record docwrite.evidence.selection-highlight/1 : evidence {
+    title "Extending the caret paints selection pixels behind the glyphs. A collapsed caret paints none."
+    state verified
+    result pass
+    method command
+    observed_at git:fe9fbbe24d9ea661363b36b90ce78b4e946416f9
+    command "cargo test -p docwrite-app --test selection"
+    summary """
+        Extending the caret paints selection pixels behind the glyphs. A collapsed caret paints none.
+        """
+}
+
+record docwrite.evidence.template-propagates/1 : evidence {
+    title "Changing the chapter template opener from Chapter to Lesson changed all ten chapter openers, and reopening restored the template."
+    state verified
+    result pass
+    method command
+    observed_at git:05ae64374331a685c7f9185e94976fd52c1f701a
+    command "cargo test -p docwrite-model --test persistence -- ten_chapters_follow_one_template_and_reorder_and_reopen"
+    summary """
+        Changing the chapter template opener from Chapter to Lesson changed all ten chapter openers, and reopening restored the template.
+        """
+}
+
+record docwrite.evidence.typing-trace/1 : evidence {
+    title "A 46-frame typing trace on a 500-page document stayed inside 8ms. Each keypress laid out only the edited page and the next, and the typed page text starts with k."
+    state verified
+    result pass
+    method command
+    observed_at git:05ae64374331a685c7f9185e94976fd52c1f701a
+    command "cargo test -p docwrite-app --test latency_gate"
+    summary """
+        A 46-frame typing trace on a 500-page document stayed inside 8ms. Each keypress laid out only the edited page and the next, and the typed page text starts with k.
+        """
+}
+
+record docwrite.evidence.window-features-2026-09-24/1 : evidence {
+    title "Editor commands, toolbar, sidebar, full screen, spreads, research pane, find/replace and typography pass their tests"
+    state verified
+    result pass
+    method command
+    observed_at git:987c32fee7cb49205649306dd7c7a89fb6976efe
+    command "cargo test (lege-docwrite workspace: 92 tests) and cargo clippy --all-targets (no warnings)"
+    summary """
+        Covers: resizable Book Map folding to a tab; WordPerfect-style full screen with a
+        status line; spread view; toolbar marks, styles, sizes, chapter/rename/note
+        prompts; find, find-again, replace-all (one undo); smart quotes/dashes/ellipses;
+        research pane capture, quote, cite and citation follow-through; lossless format-2
+        bundles with format-1 migration and crash-safe swap; bold/italic families,
+        justification, indents, drop caps, synthesized small caps; contents, Notes,
+        Bibliography and Index sections. Views were also checked in offscreen PNG
+        snapshots. Not covered: an interactive session in the window by a person.
+        """
+}

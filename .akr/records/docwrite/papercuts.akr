@@ -1,0 +1,114 @@
+akr 0.1
+project lege-docwrite
+
+record docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 : papercut {
+    title "Advisor packet listed pixelkit/** under ecosystem root, but that…"
+    state verified
+    statement """
+        Advisor packet listed pixelkit/** under ecosystem root, but that directory does not exist; resolving actual dependency location from manifests.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "astra"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : papercut {
+    title "AKR commands for docwrite must run with lege-docwrite as cwd; invoking…"
+    state verified
+    statement """
+        AKR commands for docwrite must run with lege-docwrite as cwd; invoking from ecosystem root selected a separate ledger and its existing strict validation errors obscured the docwrite context.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 : papercut {
+    title "knowledge_start via the MCP server attached at the projects workspace…"
+    state verified
+    statement """
+        knowledge_start via the MCP server attached at the projects workspace failed with AKR-C011 (no .akr there). The lege-docwrite ledger is nested, and the MCP tool has no --dir argument, so the session had to switch to the akr CLI with --dir.
+        """
+    observed_at git:b479438c4375c11e8dfb90aff46abdabea337c6c
+    about "akr"
+    author "grok"
+    created_at 2026-09-23
+}
+
+record docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 : papercut {
+    title "The repository-local rfd fork builds for Docwrite but emits 51 macOS…"
+    state verified
+    statement """
+        The repository-local rfd fork builds for Docwrite but emits 51 macOS deprecation/unused-unsafe warnings, burying Docwrite diagnostics during cargo check; updating the fork for current objc2 APIs would quiet the build.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-adding-rfd-and-document-import/1 : papercut {
+    title "While adding rfd and document import dependencies, the first Cargo…"
+    state verified
+    statement """
+        While adding rfd and document import dependencies, the first Cargo check repeatedly failed DNS access to crates.io inside the sandbox; retrying with network approval resolved the dependencies.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-checking-host-key-events-i-looked-for/1 : papercut {
+    title "While checking host key events, I looked for pixelkit-shell/src at the…"
+    state verified
+    statement """
+        While checking host key events, I looked for pixelkit-shell/src at the PixelKit root; the checkout keeps crates under a nested path, so the search missed and needed a retry.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-correcting-a-proposed-pdf-tab-work-record/1 : papercut {
+    title "While correcting a proposed PDF-tab work record, akr revise rejected…"
+    state verified
+    statement """
+        While correcting a proposed PDF-tab work record, akr revise rejected the displayed key with /1 even though akr propose returned that form; revise expects the base key without its revision suffix.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    about "akr"
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 : papercut {
+    title "While parsing DOCX XML with quick-xml 0.41, the first importer dropped…"
+    state verified
+    statement """
+        While parsing DOCX XML with quick-xml 0.41, the first importer dropped &amp; because entity references arrive as Event::GeneralRef rather than Event::Text; a fixture caught the loss and the parser now handles that event.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-testing-host-input-routing-editor-new/1 : papercut {
+    title "While testing host input routing, Editor::new unexpectedly seeded…"
+    state verified
+    statement """
+        While testing host input routing, Editor::new unexpectedly seeded sample prose, so exact manuscript assertions failed; use Editor::with_book(Book::new(...)) for empty input fixtures.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-visually-checking-the-launched-lege/1 : papercut {
+    title "While visually checking the launched lege-docwrite binary, the…"
+    state verified
+    statement """
+        While visually checking the launched lege-docwrite binary, the computer-use app inventory did not expose this unbundled macOS executable and getApp rejected its path, so the live window could not be inspected through that tool.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}

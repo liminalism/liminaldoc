@@ -1,0 +1,78 @@
+# Liminaldoc: separate reader and writer executables behind one entry point.
+[workspace]
+resolver = "3"
+members = [
+    "crates/liminaldoc",
+    "crates/liminal-reader",
+    "crates/docwrite-model",
+    "crates/docwrite-typeset",
+    "crates/docwrite-export",
+    "crates/docwrite-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "AGPL-3.0-only"
+
+[workspace.dependencies]
+docwrite-model = { path = "crates/docwrite-model" }
+docwrite-typeset = { path = "crates/docwrite-typeset" }
+docwrite-export = { path = "crates/docwrite-export" }
+
+ropey = "1.6.1"
+unicode-segmentation = "1.12"
+
+# Lege crates, consumed by path from the sibling trees. They keep inheriting
+# from the ecosystem workspace root; only the dependency edge is ours.
+#
+# The ecosystem root's [patch] entries for jbig2enc-rust and jp2lam do not
+# carry over into this workspace. The ecosystem declares both by path, so they
+# need no repeating here; if a transitive git-sourced codec dependency ever
+# appears, it must be re-patched in this manifest.
+lege-pdf-write = { path = "../lege-pdf/write" }
+lege-pdf-read = { path = "../lege-pdf/read" }
+pdf-font = { path = "../lege-pdf/render/crates/pdf-font" }
+pdf-text = { path = "../lege-pdf/render/crates/pdf-text" }
+
+# pixelkit: sibling repository next to Lege-ecosystem, path-only.
+pixelkit-raster = { path = "../../pixelkit/crates/pixelkit-raster" }
+pixelkit-text = { path = "../../pixelkit/crates/pixelkit-text" }
+pixelkit-shell = { path = "../../pixelkit/crates/pixelkit-shell" }
+pixelkit-ui = { path = "../../pixelkit/crates/pixelkit-ui" }
+
+# Native reader dependencies. The backend remains a separate executable so
+# writer startup never creates PDF workers, caches or a presenter.
+arc-swap = "1.7"
+crossbeam-channel = "0.5"
+thiserror = "2.0.18"
+winit = "0.30.13"
+cosmic-text = "0.19.0"
+copypasta = "0.10"
+tempfile = "3.27.0"
+open = "5.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+softbuffer = "0.4.8"
+pdf-source = { path = "../lege-pdf/render/crates/pdf-source" }
+pdf-document = { path = "../lege-pdf/render/crates/pdf-document" }
+pdf-security = { path = "../lege-pdf/render/crates/pdf-security" }
+pdf-content = { path = "../lege-pdf/render/crates/pdf-content" }
+pdf-page-ir = { path = "../lege-pdf/render/crates/pdf-page-ir" }
+pdf-render-api = { path = "../lege-pdf/render/crates/pdf-render-api" }
+pdf-render-cpu = { path = "../lege-pdf/render/crates/pdf-render-cpu" }
+pdf-render-wgpu = { path = "../lege-pdf/render/crates/pdf-render-wgpu" }
+pdf-test-support = { path = "../lege-pdf/render/crates/pdf-test-support" }
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+
+# An editor must never lose a manuscript to an abort.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "warn"
