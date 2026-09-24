@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:e3b37236edbb7fdbaed1cf1b05c62371ebbe723621672f3121321ea92134dc3e"
+    source_graph "sha256:56803d88838e3c2676968a64daf7155ccc671d6fa5aaa9b4f1e59b1c17b70cea"
 }
 
 source ".akr/project.akr" {
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:169786066566c189515e11401c46d10cbec94143605fd448ec88c3c2cd50d549"
-    records 12
+    hash "sha256:c08ea00c210141db5c498fc25d941a274fbc64620ed532876162b27bf32c578e"
+    records 13
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -962,6 +962,11 @@ seal @docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 {
 seal @docwrite.papercut.after-copying-the-docwrite-ledger-into/1 {
     state verified
     hash "sha256:9daf4bffe7a886e1ed901f90268d881b883b0f94f45faff5e6e843a4a6f1714e"
+}
+
+seal @docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 {
+    state verified
+    hash "sha256:19105883493b6b335476bbd52b642a4cb6338e87a4da206111d83c7da89f3fd2"
 }
 
 seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 {

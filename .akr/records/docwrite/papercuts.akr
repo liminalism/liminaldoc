@@ -23,6 +23,17 @@ record docwrite.papercut.after-copying-the-docwrite-ledger-into/1 : papercut {
     created_at 2026-09-24
 }
 
+record docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 : papercut {
+    title "After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test…"
+    state verified
+    statement """
+        After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test --test book_layout and --test paragraph_rules as test-name filters even though they are integration-test target selectors; both targets run and pass. I renamed representative tests to include the target names and am checking whether the committed ledger snapshot resolves the false positive.
+        """
+    observed_at git:0cd1569f4800c6bf674c994dfaad882d2cf07369
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : papercut {
     title "AKR commands for docwrite must run with lege-docwrite as cwd; invoking…"
     state verified
