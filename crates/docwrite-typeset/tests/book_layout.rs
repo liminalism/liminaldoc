@@ -387,7 +387,7 @@ fn note_text(document: &docwrite_typeset::Document) -> String {
 }
 
 #[test]
-fn book_layout_next_page_chapters_start_a_page_and_templates_bring_their_masters() {
+fn next_page_chapters_start_a_page_and_templates_bring_their_masters() {
     use docwrite_model::ChapterStart;
     let mut book = Book::new("Rules");
     let mut template = book.chapter_templates()[0].clone();
