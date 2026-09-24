@@ -18,4 +18,4 @@ The reader keeps its Lege rendering, navigation, search, selection and processin
 
 ## Repository dependencies
 
-The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.
+The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration but are excluded from its Cargo workspace; its `cargo viewer` and `cargo docwrite` aliases point here. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.
