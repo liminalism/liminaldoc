@@ -169,11 +169,11 @@ installed as the session default for text/markdown and application/pdf.
 
 | Check | Method | Verdict |
 | --- | --- | --- |
-| `clippy-clean` | command | **satisfied** by `@docwrite.evidence.reader-markdown-clippy/2` (pass at `bedd933f`) |
-| `full-suite` | command | **satisfied** by `@docwrite.evidence.reader-markdown-full-suite/2` (pass at `bedd933f`) |
-| `module-tests` | command | **satisfied** by `@docwrite.evidence.reader-markdown-module-tests/2` (pass at `bedd933f`) |
-| `registered-default` | command | **satisfied** by `@docwrite.evidence.reader-markdown-default-registration/2` (pass at `bedd933f`) |
-| `render-reviewed` | observation | **satisfied** by `@docwrite.evidence.reader-markdown-render-review/2` (pass at `bedd933f`) |
+| `clippy-clean` | command | **satisfied** by `@docwrite.evidence.reader-markdown-clippy/2` (pass at `bedd933f`, descends from `bedd933f`) |
+| `full-suite` | command | **satisfied** by `@docwrite.evidence.reader-markdown-full-suite/2` (pass at `bedd933f`, descends from `bedd933f`) |
+| `module-tests` | command | **satisfied** by `@docwrite.evidence.reader-markdown-module-tests/2` (pass at `bedd933f`, descends from `bedd933f`) |
+| `registered-default` | command | **satisfied** by `@docwrite.evidence.reader-markdown-default-registration/2` (pass at `bedd933f`, descends from `bedd933f`) |
+| `render-reviewed` | observation | **satisfied** by `@docwrite.evidence.reader-markdown-render-review/2` (pass at `bedd933f`, descends from `bedd933f`) |
 
 **Depends on** [Reader Markdown parses with pulldown-cmark and ports the WPF block walk](DECISION-HISTORY.md#revision-1--reader-markdown-parses-with-pulldown-cmark-and-ports-the-wpf-block-walk) `@docwrite.decision.reader-markdown-parser/1`
 
