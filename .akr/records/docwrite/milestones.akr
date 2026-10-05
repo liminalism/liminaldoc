@@ -546,7 +546,7 @@ record docwrite.milestone.reader-markdown-v1/1 : milestone {
 
 record docwrite.milestone.reader-markdown-v1/2 : milestone {
     title "Reader opens Markdown and is the session default for Markdown and PDF"
-    state completed
+    state superseded
     scope [
         path "crates/liminal-reader/src/app.rs",
         path "crates/liminal-reader/src/cli.rs",
@@ -613,5 +613,77 @@ record docwrite.milestone.reader-markdown-v1/2 : milestone {
     }
     depends_on [ @docwrite.decision.reader-markdown-parser ]
     supersedes [ @docwrite.milestone.reader-markdown-v1/1 ]
+    author "dk"
+}
+
+record docwrite.milestone.reader-markdown-v1/3 : milestone {
+    title "Reader opens Markdown and is the session default for Markdown and PDF"
+    state completed
+    scope [
+        path "crates/liminal-reader/src/app.rs",
+        path "crates/liminal-reader/src/cli.rs",
+        path "crates/liminal-reader/src/document/markdown/**",
+        path "crates/liminal-reader/src/main.rs"
+    ]
+    intent """
+        The reader opens Markdown: a Markdown engine behind the document-engine
+        boundary (parse, theme, layout, raster), CLI and Open-dialog routing,
+        installed as the session default for text/markdown and application/pdf.
+        """
+    note """
+        Implemented and verified before this record existed; evidence below was
+        observed in a working tree atop 21bc9e2 with the reader changes
+        uncommitted. Landed with the code in 752dc69 via the prepared change;
+        evidence is current with the landing, so observed_at stays at the
+        observation point rather than the landing commit.
+        """
+    acceptance {
+        check clippy-clean {
+            statement """
+                Clippy with warnings denied is clean across all targets.
+                """
+            method command
+            command "cargo clippy -p liminaldoc-reader --all-targets --no-deps -- -D warnings"
+            verified_by [ @docwrite.evidence.reader-markdown-clippy/2 ]
+        }
+        check full-suite {
+            statement """
+                The full reader suite passes with no failures.
+                """
+            method command
+            command "cargo test -p liminaldoc-reader --all-targets"
+            verified_by [ @docwrite.evidence.reader-markdown-full-suite/2 ]
+        }
+        check module-tests {
+            statement """
+                The Markdown module suite passes: parser, theme, layout,
+                engine units including the wrap/table/margin regressions.
+                """
+            method command
+            command "cargo test -p liminaldoc-reader --lib document::markdown"
+            verified_by [ @docwrite.evidence.reader-markdown-module-tests/2 ]
+        }
+        check registered-default {
+            statement """
+                liminal-reader is installed with a desktop entry declaring
+                markdown/plain/PDF, and the session broker resolves both
+                text/markdown and application/pdf to it.
+                """
+            method command
+            command "busctl --user call org.templaros.Session /org/templaros/Session/Associations org.templaros.Associations1 ListMimeDefaults"
+            verified_by [ @docwrite.evidence.reader-markdown-default-registration/2 ]
+        }
+        check render-reviewed {
+            statement """
+                A feature-exercise document and a real 6-page document render
+                correctly on pixel review: no duplicated lines, table cells
+                inside their columns, ink inside the margins.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.reader-markdown-render-review/2 ]
+        }
+    }
+    depends_on [ @docwrite.decision.reader-markdown-parser ]
+    supersedes [ @docwrite.milestone.reader-markdown-v1/2 ]
     author "dk"
 }
