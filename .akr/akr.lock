@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:ce2843b8d2ef0d5da5bfebd9868894e6bd8cf0507e60df02c66b2c7a6a12a43b"
+    source_graph "sha256:2e25399ccb312d2caf612a2f900ba6c805a1cde575bf9e869f188bf42a56234c"
 }
 
 source ".akr/project.akr" {
@@ -24,13 +24,13 @@ source ".akr/records/docwrite/evidence.akr" {
 }
 
 source ".akr/records/docwrite/milestones.akr" {
-    hash "sha256:fd284e894a3344969f3b7054f2066f6d2b147802b869b3e7e0db59239cd599f1"
-    records 13
+    hash "sha256:cfb677f79145b592b98ce0139d19402ba905e569ed106cf6f343b4ceb4bf0cdb"
+    records 14
 }
 
 source ".akr/records/docwrite/observations.akr" {
-    hash "sha256:02f186107b565887ac442e62195e29e6ff1fa3c3d93e945f7972a528d278d98c"
-    records 24
+    hash "sha256:877cc2354f43b86faca269a83041a4da6f68ca9ce74a6ced160f2a9a1f0042a5"
+    records 25
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
@@ -383,6 +383,12 @@ resolution @docwrite.milestone.m7-open-items/1 {
 }
 
 resolution @docwrite.milestone.reader-markdown-v1/1 {
+    slot depends_on
+    to @docwrite.decision.reader-markdown-parser/1
+    hash "sha256:462671df0faacaaaa87f25e153e8c333ca7001b0f674c96c702f62c02d161d51"
+}
+
+resolution @docwrite.milestone.reader-markdown-v1/2 {
     slot depends_on
     to @docwrite.decision.reader-markdown-parser/1
     hash "sha256:462671df0faacaaaa87f25e153e8c333ca7001b0f674c96c702f62c02d161d51"
@@ -871,13 +877,23 @@ seal @docwrite.milestone.m5-interchange/2 {
 }
 
 seal @docwrite.milestone.reader-markdown-v1/1 {
+    state superseded
+    hash "sha256:b5b2677fca51d3e81931420f29b7e1cdebdb99abe11a9012452a90684b0cf79a"
+}
+
+seal @docwrite.milestone.reader-markdown-v1/2 {
     state completed
-    hash "sha256:a6e25a6edbd6c11b5a14ad5db01a4437fe92c5ea353104d8cb0c7791c141feb0"
+    hash "sha256:039564755ee75e6b2cb8c9751b171675f699fbdab0f23c585be1ea2eb0e61b98"
 }
 
 seal @docwrite.observation.cosmic-text-run-text-is-full-line/1 {
+    state superseded
+    hash "sha256:dfce7e87f9f5fd7d78d617bd2e994a0f09c2b4a4338e2aae31d7e0d32d37cfa2"
+}
+
+seal @docwrite.observation.cosmic-text-run-text-is-full-line/2 {
     state verified
-    hash "sha256:01ba0b212a4535397ec7c41d4e682b11b96a88e0c9818b33d196e8d563426892"
+    hash "sha256:e93d081617372f921fcf46146e16305c1f5f75716a8bfd5daa3d6f8c071af8c9"
 }
 
 seal @docwrite.observation.milestones-closed-on-synthetic-paths/1 {

@@ -3,7 +3,7 @@ project lege-docwrite
 
 record docwrite.observation.cosmic-text-run-text-is-full-line/1 : observation {
     title "cosmic-text LayoutRun.text is the whole buffer line, not the run fragment"
-    state verified
+    state superseded
     scope [ path "crates/liminal-reader/src/document/markdown/layout.rs" ]
     statement """
         cosmic-text 0.19 LayoutRun.text is the whole buffer line, not the run's
@@ -21,6 +21,29 @@ record docwrite.observation.cosmic-text-run-text-is-full-line/1 : observation {
     observed_at git:21bc9e264d5365e15f7645b16f7d636c6aba90b3
     method observation
     watches [ "crates/liminal-reader/src/document/markdown/layout.rs" ]
+}
+
+record docwrite.observation.cosmic-text-run-text-is-full-line/2 : observation {
+    title "cosmic-text LayoutRun.text is the whole buffer line, not the run fragment"
+    state verified
+    scope [ path "crates/liminal-reader/src/document/markdown/layout.rs" ]
+    statement """
+        cosmic-text 0.19 LayoutRun.text is the whole buffer line, not the run's
+        visible fragment: every wrapped run of a line reports the identical full
+        text, and only the run's glyph byte range (cluster indices, restarted per
+        buffer line) delimits what it shows. Slicing run.text per run repeats the
+        full paragraph on every wrapped line; at raster the over-long text shapes
+        unwrapped and spills past the content edge. The reader's shaper now cuts
+        each run's text from its glyph range against per-line base offsets, with
+        regression tests for reassembly, span bounds, cell-once tables and the
+        content edge. Observed while fixing duplicated paragraph lines, broken
+        tables and margin spill in the reader's Markdown engine (working tree
+        atop 21bc9e2, code uncommitted).
+        """
+    observed_at git:21bc9e264d5365e15f7645b16f7d636c6aba90b3
+    method observation
+    supersedes [ @docwrite.observation.cosmic-text-run-text-is-full-line/1 ]
+    author "dk"
 }
 
 record docwrite.observation.milestones-closed-on-synthetic-paths/1 : observation {
