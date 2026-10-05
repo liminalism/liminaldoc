@@ -49,6 +49,7 @@ winit.workspace = true
 cosmic-text.workspace = true
 copypasta.workspace = true
 pdf-font.workspace = true
+pulldown-cmark.workspace = true
 tempfile.workspace = true
 open.workspace = true
 # The same vendored dialog crate both Lege GUIs use.

@@ -119,6 +119,14 @@ fn open_engine(mode: LaunchMode) -> Result<Startup, Box<dyn std::error::Error>> 
                 .into())
             }
         }
+        LaunchMode::Markdown(path) => {
+            match liminaldoc_reader::document::markdown::MarkdownEngine::open(&path) {
+                Ok(engine) => Ok(Startup::Ready(Arc::new(engine))),
+                Err(error) => {
+                    Err(std::io::Error::other(format!("failed to open Markdown: {error}")).into())
+                }
+            }
+        }
         LaunchMode::Help => {
             Err(std::io::Error::other("help mode does not create a document engine").into())
         }

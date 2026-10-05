@@ -1,3 +1,5 @@
+//! Architecture tests: launch modes, paging, layout, compilation, search,
+//! history, caching, and document-engine contracts.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::sync::Arc;
@@ -1622,4 +1624,74 @@ fn a_malformed_document_is_not_reported_as_needing_a_password() {
         matches!(error, DocumentEngineError::Engine(_)),
         "a malformed document reported as {error} would prompt for a password that cannot exist"
     );
+}
+
+#[test]
+fn launch_mode_routes_markdown_by_extension() {
+    use liminaldoc_reader::cli::is_markdown_path;
+    use std::path::Path;
+
+    assert_eq!(
+        parse_launch_mode(["notes.md"]).unwrap(),
+        LaunchMode::Markdown("notes.md".into())
+    );
+    assert_eq!(
+        parse_launch_mode(["README.MARKDOWN"]).unwrap(),
+        LaunchMode::Markdown("README.MARKDOWN".into())
+    );
+    assert_eq!(
+        parse_launch_mode(["draft.txt"]).unwrap(),
+        LaunchMode::Markdown("draft.txt".into())
+    );
+    // Everything else keeps the historical PDF route.
+    assert_eq!(
+        parse_launch_mode(["example.pdf"]).unwrap(),
+        LaunchMode::Pdf("example.pdf".into())
+    );
+    assert!(is_markdown_path(Path::new("a.mkd")));
+    assert!(!is_markdown_path(Path::new("a.pdf")));
+    assert!(!is_markdown_path(Path::new("extensionless")));
+}
+
+#[test]
+fn markdown_documents_open_search_and_outline() {
+    use liminaldoc_reader::document::markdown::MarkdownEngine;
+    use std::io::Write;
+
+    let mut file = tempfile::NamedTempFile::new().expect("temporary markdown");
+    file.write_all(b"# Guide\n\nSee [details](#usage) and use `cargo`.\n\n## Usage\n")
+        .expect("write markdown");
+    let engine = MarkdownEngine::open(file.path()).expect("open markdown file");
+    assert!(engine.descriptor().page_count >= 1);
+    assert_eq!(engine.descriptor().outline.len(), 2);
+    assert_eq!(engine.descriptor().outline[1].depth, 1);
+    assert!(
+        engine
+            .descriptor()
+            .page_links
+            .iter()
+            .flat_map(|page| page.iter())
+            .any(|link| matches!(
+                &link.target,
+                liminaldoc_reader::document::LinkTarget::Internal { .. }
+            )),
+        "the #usage link must resolve to the heading"
+    );
+    let layout = PageLayoutIndex::build(
+        &engine.descriptor().page_geometries,
+        &liminaldoc_reader::theme::Theme::default().metrics,
+    );
+    let artifacts = engine
+        .compile_page(
+            PageIndex(0),
+            layout.placement(PageIndex(0)).unwrap().page_to_doc,
+            &CancellationFlag::default(),
+        )
+        .expect("compile markdown page");
+    let mut index = SearchIndex::default();
+    index.insert(
+        PageIndex(0),
+        std::sync::Arc::clone(artifacts.text.substrate()),
+    );
+    assert_eq!(index.search_exact("cargo", 8).len(), 1);
 }

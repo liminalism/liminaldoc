@@ -94,11 +94,17 @@ fallback, and either presenter can display both routes.
 
 ## Run
 
-Open a PDF:
+Open a PDF or a Markdown file:
 
 ```text
 cargo run -p liminaldoc-reader -- document.pdf
+cargo run -p liminaldoc-reader -- notes.md
 ```
+
+Markdown (`.md`, `.markdown`, `.txt`, …) opens in the Markdown engine, a
+port of the WPF Markdown viewer's document pipeline (headings, lists, tables,
+code, quotes, links, task lists) onto the reader's page model, so search,
+selection, outlines, and tiling all work unchanged.
 
 `--presenter auto` is the default. The explicit modes are useful for
 certification and diagnosis:

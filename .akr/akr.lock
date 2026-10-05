@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:56803d88838e3c2676968a64daf7155ccc671d6fa5aaa9b4f1e59b1c17b70cea"
+    source_graph "sha256:ce2843b8d2ef0d5da5bfebd9868894e6bd8cf0507e60df02c66b2c7a6a12a43b"
 }
 
 source ".akr/project.akr" {
@@ -14,23 +14,23 @@ source ".akr/project.akr" {
 }
 
 source ".akr/records/docwrite/decisions.akr" {
-    hash "sha256:b4cc06514d47033698d80057f67cb8991d542dbd7579586d170f9c140fd3e748"
-    records 9
+    hash "sha256:cb6aa7cb5bbacbaf1dcc7e6059b77d8dfe6f7f86bdc78c87481617c269329786"
+    records 10
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:87b0798384c70873f5d85dd8ab443c0b5f36acbf16057d152eef8f23677d462d"
-    records 43
+    hash "sha256:7d179abadbb089004734fee8260f58437d706fad5a36214da36166e3a28ff43b"
+    records 48
 }
 
 source ".akr/records/docwrite/milestones.akr" {
-    hash "sha256:3b056176a2c0d0d69bb0787399a3266ce453230219c6da7f152bc557ac3a999a"
-    records 12
+    hash "sha256:fd284e894a3344969f3b7054f2066f6d2b147802b869b3e7e0db59239cd599f1"
+    records 13
 }
 
 source ".akr/records/docwrite/observations.akr" {
-    hash "sha256:ac3c3df36a05394e0ab1bfdf794ed5ab91df83d5783c6b012063e066c20837d6"
-    records 23
+    hash "sha256:02f186107b565887ac442e62195e29e6ff1fa3c3d93e945f7972a528d278d98c"
+    records 24
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
@@ -380,6 +380,12 @@ resolution @docwrite.milestone.m7-open-items/1 {
     slot after
     to @docwrite.milestone.m6-writer-ready/1
     hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
+}
+
+resolution @docwrite.milestone.reader-markdown-v1/1 {
+    slot depends_on
+    to @docwrite.decision.reader-markdown-parser/1
+    hash "sha256:462671df0faacaaaa87f25e153e8c333ca7001b0f674c96c702f62c02d161d51"
 }
 
 resolution @docwrite.work.m1-incremental-pagination/1 {
@@ -769,6 +775,31 @@ seal @docwrite.evidence.pdf-renders-typeset-pages/1 {
     hash "sha256:e7bd9281f6cefd4eca8d2097b969f914905bc363649297d301977e47c47f8cc1"
 }
 
+seal @docwrite.evidence.reader-markdown-clippy/1 {
+    state verified
+    hash "sha256:b5734e3b2194d9b9de37c9f22f98e7e3c5ef81a717ce7e6520dd8fa05621f21f"
+}
+
+seal @docwrite.evidence.reader-markdown-default-registration/1 {
+    state verified
+    hash "sha256:6edd08314abde3e92321bdcae183a19ebc00ad4611033a85ab2674d5496790a4"
+}
+
+seal @docwrite.evidence.reader-markdown-full-suite/1 {
+    state verified
+    hash "sha256:f95d4e5d08115accde4cae61d6ee72e67902c63d969816b40f74efb69e0d1221"
+}
+
+seal @docwrite.evidence.reader-markdown-module-tests/1 {
+    state verified
+    hash "sha256:9a9540d61984500131d32a6af255107f7181b1d883a9a7ef18c80a8480b9aead"
+}
+
+seal @docwrite.evidence.reader-markdown-render-review/1 {
+    state verified
+    hash "sha256:24f0fcc785f06ddcbcf32c32a470e0665956e950f0404ab18469a9dc4418d36f"
+}
+
 seal @docwrite.evidence.selection-highlight/1 {
     state verified
     hash "sha256:b3fcb5c93967bc41237825c6719e4495979006f0c14a93dd7f1b5eee11aad806"
@@ -837,6 +868,16 @@ seal @docwrite.milestone.m5-interchange/1 {
 seal @docwrite.milestone.m5-interchange/2 {
     state completed
     hash "sha256:5f3ed746495f3ef34e045080002ccdf0a2ec7f2109545b803da2dbc80ff21d41"
+}
+
+seal @docwrite.milestone.reader-markdown-v1/1 {
+    state completed
+    hash "sha256:a6e25a6edbd6c11b5a14ad5db01a4437fe92c5ea353104d8cb0c7791c141feb0"
+}
+
+seal @docwrite.observation.cosmic-text-run-text-is-full-line/1 {
+    state verified
+    hash "sha256:01ba0b212a4535397ec7c41d4e682b11b96a88e0c9818b33d196e8d563426892"
 }
 
 seal @docwrite.observation.milestones-closed-on-synthetic-paths/1 {

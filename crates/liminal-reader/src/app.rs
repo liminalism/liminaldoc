@@ -2991,8 +2991,12 @@ impl ViewerApp {
     /// viewer window, so the event loop simply resumes once it closes.
     fn prompt_for_document(&mut self) {
         let mut dialog = rfd::FileDialog::new()
-            .set_title("Open a PDF document")
-            .add_filter("PDF documents", &["pdf"]);
+            .set_title("Open a document")
+            .add_filter("PDF documents", &["pdf"])
+            .add_filter(
+                "Markdown documents",
+                &["md", "markdown", "mdown", "mkd", "mkdn", "txt"],
+            );
         if let Some(directory) = self
             .engine
             .source_path()
@@ -3671,7 +3675,7 @@ impl ViewerApp {
     /// Open `path`, asking for a password rather than failing when the
     /// document turns out to be encrypted.
     fn open_document_with_password(&mut self, path: &std::path::Path, password: Option<&str>) {
-        match open_pdf_engine(path, password) {
+        match open_document_engine(path, password) {
             Ok(engine) => {
                 self.dismiss_password_prompt();
                 if let Err(error) = self.adopt_engine(engine) {
@@ -5747,6 +5751,17 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
+}
+
+fn open_document_engine(
+    path: &std::path::Path,
+    password: Option<&str>,
+) -> Result<Arc<dyn DocumentEngine>, DocumentEngineError> {
+    if crate::cli::is_markdown_path(path) {
+        return crate::document::markdown::MarkdownEngine::open(path)
+            .map(|engine| Arc::new(engine) as Arc<dyn DocumentEngine>);
+    }
+    open_pdf_engine(path, password)
 }
 
 #[cfg(feature = "pdf-engine")]

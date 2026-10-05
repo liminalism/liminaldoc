@@ -3,11 +3,12 @@ use std::path::PathBuf;
 
 use crate::present::PresenterPreference;
 
-pub const USAGE: &str = "Usage: liminaldoc-reader [--presenter auto|gpu|software] [document.pdf]\n       liminaldoc-reader [--presenter auto|gpu|software] --synthetic [PAGE_COUNT]\n\nWithout a document the viewer opens an empty window; use its Open button\n(or Ctrl+O) to choose a PDF.";
+pub const USAGE: &str = "Usage: liminaldoc-reader [--presenter auto|gpu|software] [document.pdf|document.md]\n       liminaldoc-reader [--presenter auto|gpu|software] --synthetic [PAGE_COUNT]\n\nWithout a document the viewer opens an empty window; use its Open button\n(or Ctrl+O) to choose a PDF or Markdown file.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LaunchMode {
     Pdf(PathBuf),
+    Markdown(PathBuf),
     Synthetic {
         page_count: u32,
     },
@@ -31,7 +32,7 @@ pub enum CliError {
     TooManySyntheticArguments,
     #[error("synthetic page count must be a positive integer")]
     InvalidSyntheticPageCount,
-    #[error("only one PDF document can be opened at a time")]
+    #[error("only one document can be opened at a time")]
     TooManyDocuments,
     #[error("--presenter requires auto, gpu, or software")]
     MissingPresenter,
@@ -39,7 +40,7 @@ pub enum CliError {
     InvalidPresenter(String),
     #[error("--presenter may only be specified once")]
     DuplicatePresenter,
-    #[error("--synthetic cannot be combined with a PDF document")]
+    #[error("--synthetic cannot be combined with a document")]
     ConflictingDocumentModes,
 }
 
@@ -125,7 +126,11 @@ where
             page_count: synthetic_count.unwrap_or(10_000),
         }
     } else if let Some(path) = document {
-        LaunchMode::Pdf(path)
+        if is_markdown_path(&path) {
+            LaunchMode::Markdown(path)
+        } else {
+            LaunchMode::Pdf(path)
+        }
     } else {
         LaunchMode::Empty
     };
@@ -133,4 +138,17 @@ where
         mode,
         presenter: presenter.unwrap_or_default(),
     })
+}
+
+/// Whether `path` names a Markdown document, by extension. Plain `.txt`
+/// files render as Markdown too, matching the WPF viewer's open set.
+pub fn is_markdown_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "mdown" | "mkd" | "mkdn" | "txt"
+            )
+        })
 }

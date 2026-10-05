@@ -139,6 +139,7 @@ pub struct SyntheticCompiledPage {
 #[derive(Debug, Clone)]
 pub enum SemanticArtifact {
     Synthetic(Arc<SyntheticSemanticPage>),
+    Markdown(Arc<super::markdown::MarkdownPage>),
     #[cfg(feature = "pdf-engine")]
     Pdf(Arc<pdf_content::SemanticPage>),
 }
@@ -146,6 +147,7 @@ pub enum SemanticArtifact {
 #[derive(Debug, Clone)]
 pub enum CompiledArtifact {
     Synthetic(Arc<SyntheticCompiledPage>),
+    Markdown(Arc<super::markdown::MarkdownPage>),
     #[cfg(feature = "pdf-engine")]
     Pdf(Arc<pdf_page_ir::CompiledPage>),
 }
@@ -154,6 +156,7 @@ impl CompiledArtifact {
     pub fn operation_count(&self) -> usize {
         match self {
             Self::Synthetic(page) => page.operation_count,
+            Self::Markdown(page) => page.operation_count(),
             #[cfg(feature = "pdf-engine")]
             Self::Pdf(page) => page.operations.len(),
         }
@@ -162,6 +165,7 @@ impl CompiledArtifact {
     pub fn estimated_peak_bytes(&self) -> u64 {
         match self {
             Self::Synthetic(page) => (page.operation_count * 64) as u64,
+            Self::Markdown(page) => page.estimated_bytes(),
             #[cfg(feature = "pdf-engine")]
             Self::Pdf(page) => page.complexity.estimated_peak_bytes,
         }

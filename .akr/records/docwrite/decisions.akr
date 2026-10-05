@@ -107,6 +107,35 @@ record docwrite.decision.product-shape/1 : decision {
         """
 }
 
+record docwrite.decision.reader-markdown-parser/1 : decision {
+    title "Reader Markdown parses with pulldown-cmark and ports the WPF block walk"
+    state proposed
+    scope [ path "crates/liminal-reader/src/document/markdown/**" ]
+    topic reader-markdown-parser
+    decision """
+        Parse reader Markdown with pulldown-cmark and port the WPF viewer's
+        block/inline walk and theme onto the reader's page model, instead of
+        hand-rolling a parser or adopting the markdown_viewer_vello parser.
+        """
+    context """
+        The WPF viewer (Markdown_viewers/markdown_viewer_wpf) is the most
+        complete Markdown implementation available: Markdig AST walk, full
+        block/inline coverage, light/dark theme. Its UI layer is Windows-only
+        and cannot transfer, but the document pipeline can. pulldown-cmark
+        0.13 is CommonMark-correct where a hand-rolled parser would be
+        subset-and-bugs; the vello viewer's hand parser is smaller and less
+        proven. WPF behaviors preserved deliberately: soft breaks harden to
+        hard breaks, images keep URL+alt and render the alt fallback, .txt
+        opens as Markdown.
+        """
+    consequences """
+        One new crates.io dependency (pulldown-cmark). The block/inline model
+        in document/markdown/model.rs mirrors the WPF converter set, so future
+        WPF improvements have a clear port target. Known v1 limits stay open:
+        no image loading, no syntax highlighting, equal table columns.
+        """
+}
+
 record docwrite.decision.styles-masters-templates/1 : decision {
     title "Styles, page masters and chapter templates are three separate systems"
     state proposed

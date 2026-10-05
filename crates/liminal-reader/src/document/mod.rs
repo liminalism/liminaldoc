@@ -4,6 +4,7 @@ pub mod empty;
 pub mod engine;
 pub mod features;
 pub mod layout;
+pub mod markdown;
 #[cfg(feature = "pdf-engine")]
 pub mod pdf_engine;
 pub mod preview;
