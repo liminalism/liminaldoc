@@ -37,6 +37,12 @@ fn route(args: &[OsString]) -> Result<(Mode, &[OsString]), String> {
         if first == "--help" || first == "-h" {
             return Err("usage: liminaldoc [DOCUMENT.pdf|DOCUMENT.legebook|DOCUMENT.docx|DOCUMENT.odt|DOCUMENT.md|DOCUMENT.txt]\n       liminaldoc --reader [PDF] | --writer [DOCUMENT]\n       liminaldoc export BOOK.legebook OUTPUT".into());
         }
+        // Content wins over the extension: a PDF with a wrong or missing
+        // suffix still reaches the reader. (This scan duplicates the reader's
+        // own sniff so the launcher stays dependency-free.)
+        if content_is_pdf(Path::new(first)) {
+            return Ok((Mode::Reader, args));
+        }
         let extension = Path::new(first)
             .extension()
             .and_then(OsStr::to_str)
@@ -50,6 +56,22 @@ fn route(args: &[OsString]) -> Result<(Mode, &[OsString]), String> {
         }
     }
     Ok((Mode::Writer, args))
+}
+
+/// Whether the first bytes of `path` carry a PDF header. Anything
+/// unreadable reports false so routing falls back to the extension.
+fn content_is_pdf(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = [0u8; 1024];
+    let Ok(read) = file.read(&mut head) else {
+        return false;
+    };
+    head[..read]
+        .windows(b"%PDF-".len())
+        .any(|window| window == b"%PDF-")
 }
 
 fn main() -> ExitCode {
@@ -88,6 +110,8 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::{Mode, route};
     use std::ffi::OsString;
 
@@ -107,5 +131,21 @@ mod tests {
             Mode::Writer
         );
         assert!(route(&args(&["scan.djvu"])).is_err());
+    }
+
+    #[test]
+    fn pdf_content_reaches_the_reader_whatever_the_suffix() {
+        use std::io::Write;
+        let mut path = std::env::temp_dir();
+        path.push(format!("liminaldoc-route-{}.dat", std::process::id()));
+        {
+            let mut file = std::fs::File::create(&path).expect("scratch pdf");
+            file.write_all(b"%PDF-1.7\ntrailer")
+                .expect("scratch content");
+        }
+        let invocation = [path.as_os_str().to_owned()];
+        let routed = route(&invocation);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(routed.unwrap().0, Mode::Reader);
     }
 }

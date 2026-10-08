@@ -16,6 +16,7 @@ pub mod event;
 pub mod frame;
 pub mod geometry;
 pub mod input;
+pub mod measure;
 pub mod paint;
 pub mod present;
 pub mod processing;

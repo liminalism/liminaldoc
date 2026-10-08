@@ -14,7 +14,7 @@ record docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 : pape
 
 record docwrite.papercut.after-copying-the-docwrite-ledger-into/1 : papercut {
     title "After copying the docwrite ledger into Liminaldoc, strict validation…"
-    state verified
+    state superseded
     statement """
         After copying the docwrite ledger into Liminaldoc, strict validation flagged old watched paths and some legacy test command names. The original commit IDs also needed a local history merge; extraction instructions should preserve provenance and revise watches before declaring the ledger clean.
         """
@@ -23,9 +23,22 @@ record docwrite.papercut.after-copying-the-docwrite-ledger-into/1 : papercut {
     created_at 2026-09-24
 }
 
+record docwrite.papercut.after-copying-the-docwrite-ledger-into/2 : papercut {
+    title "After copying the docwrite ledger into Liminaldoc, strict validation…"
+    state verified
+    statement """
+        After copying the docwrite ledger into Liminaldoc, strict validation flagged old watched paths and some legacy test command names. The original commit IDs also needed a local history merge; extraction instructions should preserve provenance and revise watches before declaring the ledger clean.
+        """
+    observed_at git:62fe5780614fc6894d1d9191b2bd5a8d5948df43
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.after-copying-the-docwrite-ledger-into/1 ]
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 : papercut {
     title "After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test…"
-    state verified
+    state superseded
     statement """
         After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test --test book_layout and --test paragraph_rules as test-name filters even though they are integration-test target selectors; both targets run and pass. I renamed representative tests to include the target names and am checking whether the committed ledger snapshot resolves the false positive.
         """
@@ -34,9 +47,22 @@ record docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 : papercu
     created_at 2026-09-24
 }
 
+record docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/2 : papercut {
+    title "After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test…"
+    state verified
+    statement """
+        After extracting docwrite to Liminaldoc, AKR-G024 treats cargo test --test book_layout and --test paragraph_rules as test-name filters even though they are integration-test target selectors; both targets run and pass. I renamed representative tests to include the target names and am checking whether the committed ledger snapshot resolves the false positive.
+        """
+    observed_at git:0cd1569f4800c6bf674c994dfaad882d2cf07369
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 ]
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : papercut {
     title "AKR commands for docwrite must run with lege-docwrite as cwd; invoking…"
-    state verified
+    state superseded
     statement """
         AKR commands for docwrite must run with lege-docwrite as cwd; invoking from ecosystem root selected a separate ledger and its existing strict validation errors obscured the docwrite context.
         """
@@ -45,13 +71,39 @@ record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 : paperc
     created_at 2026-09-24
 }
 
+record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 : papercut {
+    title "AKR commands for docwrite must run with lege-docwrite as cwd; invoking…"
+    state verified
+    statement """
+        AKR commands for docwrite must run with lege-docwrite as cwd; invoking from ecosystem root selected a separate ledger and its existing strict validation errors obscured the docwrite context.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 ]
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 : papercut {
+    title "Extracted reader initially inherited the writer workspace…"
+    state superseded
+    statement """
+        Extracted reader initially inherited the writer workspace unsafe_code=forbid lint; its existing Unix process termination block needs the viewer unsafe policy. The combined workspace uses warn and the reader build now passes.
+        """
+    observed_at git:4e0773fa5d276e88cdd12d2ba4328ee4d19ca7ba
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.extracted-reader-initially-inherited-the-writer/2 : papercut {
     title "Extracted reader initially inherited the writer workspace…"
     state verified
     statement """
         Extracted reader initially inherited the writer workspace unsafe_code=forbid lint; its existing Unix process termination block needs the viewer unsafe policy. The combined workspace uses warn and the reader build now passes.
         """
     observed_at git:4e0773fa5d276e88cdd12d2ba4328ee4d19ca7ba
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 ]
     author "codex"
     created_at 2026-09-24
 }
@@ -115,7 +167,7 @@ record docwrite.papercut.while-correcting-a-proposed-pdf-tab-work-record/1 : pap
 
 record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 : papercut {
     title "While parsing DOCX XML with quick-xml 0.41, the first importer dropped…"
-    state verified
+    state superseded
     statement """
         While parsing DOCX XML with quick-xml 0.41, the first importer dropped &amp; because entity references arrive as Event::GeneralRef rather than Event::Text; a fixture caught the loss and the parser now handles that event.
         """
@@ -124,13 +176,39 @@ record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 : pape
     created_at 2026-09-24
 }
 
+record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/2 : papercut {
+    title "While parsing DOCX XML with quick-xml 0.41, the first importer dropped…"
+    state verified
+    statement """
+        While parsing DOCX XML with quick-xml 0.41, the first importer dropped &amp; because entity references arrive as Event::GeneralRef rather than Event::Text; a fixture caught the loss and the parser now handles that event.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 ]
+    author "codex"
+    created_at 2026-09-24
+}
+
 record docwrite.papercut.while-testing-host-input-routing-editor-new/1 : papercut {
+    title "While testing host input routing, Editor::new unexpectedly seeded…"
+    state superseded
+    statement """
+        While testing host input routing, Editor::new unexpectedly seeded sample prose, so exact manuscript assertions failed; use Editor::with_book(Book::new(...)) for empty input fixtures.
+        """
+    observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    author "codex"
+    created_at 2026-09-24
+}
+
+record docwrite.papercut.while-testing-host-input-routing-editor-new/2 : papercut {
     title "While testing host input routing, Editor::new unexpectedly seeded…"
     state verified
     statement """
         While testing host input routing, Editor::new unexpectedly seeded sample prose, so exact manuscript assertions failed; use Editor::with_book(Book::new(...)) for empty input fixtures.
         """
     observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
+    closed_at 2026-10-06
+    supersedes [ @docwrite.papercut.while-testing-host-input-routing-editor-new/1 ]
     author "codex"
     created_at 2026-09-24
 }

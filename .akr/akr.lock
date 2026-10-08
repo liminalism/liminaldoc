@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:6a08ba06b6a06094023c90ac4e6d9fc8dc212b31085abaffa58ec0527f84e8b1"
+    source_graph "sha256:8fab86476e9f5814aa39dbdeca6e44ce05e3dc4611d9f51aa22265a5a276d8ae"
 }
 
 source ".akr/project.akr" {
@@ -29,13 +29,13 @@ source ".akr/records/docwrite/milestones.akr" {
 }
 
 source ".akr/records/docwrite/observations.akr" {
-    hash "sha256:877cc2354f43b86faca269a83041a4da6f68ca9ce74a6ced160f2a9a1f0042a5"
-    records 25
+    hash "sha256:13aedf61676bf820e4124fb33636877f28c19a825fe19507763d2ad4c9b1081b"
+    records 28
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:c08ea00c210141db5c498fc25d941a274fbc64620ed532876162b27bf32c578e"
-    records 13
+    hash "sha256:c4a426b08a1db3897c79ab199a05f039844f235c5ce7e29ab58309b5784074db"
+    records 19
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -1022,6 +1022,21 @@ seal @docwrite.observation.pixelkit-text-limits/2 {
     hash "sha256:93e2959b9d0638e7f3976aace184eaa85f04adb24900e4812b5c5bda1fddc7dd"
 }
 
+seal @docwrite.observation.reader-clipboard-arboard/1 {
+    state verified
+    hash "sha256:35d64eacceaedf26df5d607593c074740c82da71caee26a7502d9d3c0510d79a"
+}
+
+seal @docwrite.observation.reader-clipboard-needs-external-fallback/1 {
+    state verified
+    hash "sha256:287673a74260e9b03a97ab0f322e15bc20e946858ab302033668eea82c96513b"
+}
+
+seal @docwrite.observation.reader-open-sniffs-content-first/1 {
+    state verified
+    hash "sha256:786910fb957973b3f8bf80a5f5b44bbd1db0825387a9c1730448d361eb68f1ba"
+}
+
 seal @docwrite.observation.viewer-paging-is-line-continuity/1 {
     state superseded
     hash "sha256:02b37ce028af28c44a9b132e6acd1a549ed2f9ee5e545559ac8c229914885dc7"
@@ -1053,23 +1068,43 @@ seal @docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 {
 }
 
 seal @docwrite.papercut.after-copying-the-docwrite-ledger-into/1 {
+    state superseded
+    hash "sha256:8d5849d4adf7c41b5a34af8f8691742e44fa756cf74e810a9cfec184971fe621"
+}
+
+seal @docwrite.papercut.after-copying-the-docwrite-ledger-into/2 {
     state verified
-    hash "sha256:9daf4bffe7a886e1ed901f90268d881b883b0f94f45faff5e6e843a4a6f1714e"
+    hash "sha256:db6d27a00a0402eb2c7faccbaf471c93cb3c363453134490181b2f6ad34f2186"
 }
 
 seal @docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/1 {
+    state superseded
+    hash "sha256:8cff152fb0ff29820b620cff18f31853007065b9fb529718ba66f5e102c34f00"
+}
+
+seal @docwrite.papercut.after-extracting-docwrite-to-liminaldoc-akr/2 {
     state verified
-    hash "sha256:19105883493b6b335476bbd52b642a4cb6338e87a4da206111d83c7da89f3fd2"
+    hash "sha256:67dcde9d8b9b2901f759e5f4f2ae39376f75addf9732e40a87c4c2be6d72c6e2"
 }
 
 seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/1 {
+    state superseded
+    hash "sha256:e6f3db71a933238dcbae009ba3f71f8368289aa9c62e9c22e1ab346243a9a82d"
+}
+
+seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 {
     state verified
-    hash "sha256:88a777cc82c3e2c3db3c210da9bce31a5a798e77ef6c0873365462b3cea292ce"
+    hash "sha256:d687c7017e8fe1e442afd6e79e1a6d59625c915660c55aff0923925650045c67"
 }
 
 seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 {
+    state superseded
+    hash "sha256:01f3f5f86b17684d13638cf8a3bf38cc3d438f6beb889faea0e48234558f35d8"
+}
+
+seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/2 {
     state verified
-    hash "sha256:341cde05732fb0a3817bbe8129f1e23ec1fad21694a03ae7908524a854594abf"
+    hash "sha256:e0dba45857157c85d688a605f49567860b2f3f8d10919b17842bd07c0e9c8d6b"
 }
 
 seal @docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 {
@@ -1098,13 +1133,23 @@ seal @docwrite.papercut.while-correcting-a-proposed-pdf-tab-work-record/1 {
 }
 
 seal @docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 {
+    state superseded
+    hash "sha256:7d0fb34257fd0b5251b84b55bc5fdbd27a118feab27ac595231dd64bdcbcb6c8"
+}
+
+seal @docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/2 {
     state verified
-    hash "sha256:752abb25eda84b6014b9b06c1113283468e9c429e8b39b2be7a25001e5dd7d48"
+    hash "sha256:80bb84c75eab80f50538fd0500c186d805e5d6786a64d9a713fdc2981e312eba"
 }
 
 seal @docwrite.papercut.while-testing-host-input-routing-editor-new/1 {
+    state superseded
+    hash "sha256:341ff6efe08253bab17b50aaf64c9cab37b88a4540d44c24c43b4c975baa7278"
+}
+
+seal @docwrite.papercut.while-testing-host-input-routing-editor-new/2 {
     state verified
-    hash "sha256:717e0428c03f2b722e59e3dd454206d4d98d0fd73afeb331b7d0e83153c0694a"
+    hash "sha256:a35f5708f77af88ad0a58aca8528b2e6a84bbbc5a4a2d5ecd23e2bdc193cf984"
 }
 
 seal @docwrite.papercut.while-visually-checking-the-launched-lege/1 {

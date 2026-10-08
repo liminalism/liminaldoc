@@ -126,11 +126,7 @@ where
             page_count: synthetic_count.unwrap_or(10_000),
         }
     } else if let Some(path) = document {
-        if is_markdown_path(&path) {
-            LaunchMode::Markdown(path)
-        } else {
-            LaunchMode::Pdf(path)
-        }
+        classify_document_path(&path)
     } else {
         LaunchMode::Empty
     };
@@ -138,6 +134,55 @@ where
         mode,
         presenter: presenter.unwrap_or_default(),
     })
+}
+
+/// Classify a document for opening. Content wins over the extension: a PDF
+/// without a `.pdf` suffix (or with a wrong one) still opens as a PDF, and a
+/// text file misnamed `.pdf` is routed to the Markdown engine instead of
+/// failing in the PDF engine. Unknown binary content keeps the PDF engine's
+/// honest parse error rather than rendering as mojibake, and unreadable
+/// paths fall back to the extension so a missing file still produces the
+/// engine's own IO error.
+pub fn classify_document_path(path: &std::path::Path) -> LaunchMode {
+    if content_is_pdf(path) {
+        LaunchMode::Pdf(path.to_path_buf())
+    } else if content_is_text(path) || is_markdown_path(path) {
+        LaunchMode::Markdown(path.to_path_buf())
+    } else {
+        LaunchMode::Pdf(path.to_path_buf())
+    }
+}
+
+/// Whether the first bytes of `path` carry a PDF header. The scan tolerates
+/// leading blank lines and a UTF-8 BOM, which lenient writers emit; anything
+/// unreadable reports false so the caller falls back to the extension.
+pub fn content_is_pdf(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = [0u8; 1024];
+    let Ok(read) = file.read(&mut head) else {
+        return false;
+    };
+    let head = &head[..read];
+    head.windows(b"%PDF-".len())
+        .any(|window| window == b"%PDF-")
+}
+
+/// Whether `path` looks like readable text: no NUL bytes and valid UTF-8 in
+/// the opening chunk. An empty file counts as text and renders blank.
+pub fn content_is_text(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = [0u8; 8192];
+    let Ok(read) = file.read(&mut head) else {
+        return false;
+    };
+    let head = &head[..read];
+    !head.contains(&0) && std::str::from_utf8(head).is_ok()
 }
 
 /// Whether `path` names a Markdown document, by extension. Plain `.txt`
@@ -151,4 +196,87 @@ pub fn is_markdown_path(path: &std::path::Path) -> bool {
                 "md" | "markdown" | "mdown" | "mkd" | "mkdn" | "txt"
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use std::io::Write;
+
+    /// A scratch document with a deliberately chosen (possibly wrong or
+    /// missing) extension and content.
+    fn scratch_file(name: &str, content: &[u8]) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("liminaldoc-classify-{}-{name}", std::process::id()));
+        let mut file = std::fs::File::create(&path).expect("scratch file");
+        file.write_all(content).expect("scratch content");
+        path
+    }
+
+    #[test]
+    fn content_wins_over_extension_in_both_directions() {
+        let pdf_no_ext = scratch_file("report", b"%PDF-1.7\ntrailer");
+        let pdf_wrong_ext = scratch_file("report.md", b"\n%PDF-1.4\ntrailer");
+        let text_pdf_ext = scratch_file("notes.pdf", b"# Notes\n\njust text\n");
+        let text_no_ext = scratch_file("README", b"plain text, no suffix\n");
+        let binary_unknown = scratch_file("blob.xyz", &[0, 1, 2, b'%'.wrapping_add(1), 0]);
+        for path in [
+            &pdf_no_ext,
+            &pdf_wrong_ext,
+            &text_pdf_ext,
+            &text_no_ext,
+            &binary_unknown,
+        ] {
+            assert!(path.is_file(), "fixture missing: {}", path.display());
+        }
+
+        assert!(matches!(
+            classify_document_path(&pdf_no_ext),
+            LaunchMode::Pdf(_)
+        ));
+        assert!(matches!(
+            classify_document_path(&pdf_wrong_ext),
+            LaunchMode::Pdf(_)
+        ));
+        assert!(matches!(
+            classify_document_path(&text_pdf_ext),
+            LaunchMode::Markdown(_)
+        ));
+        assert!(matches!(
+            classify_document_path(&text_no_ext),
+            LaunchMode::Markdown(_)
+        ));
+        // Unknown binary keeps the PDF engine's honest parse error.
+        assert!(matches!(
+            classify_document_path(&binary_unknown),
+            LaunchMode::Pdf(_)
+        ));
+
+        for path in [
+            pdf_no_ext,
+            pdf_wrong_ext,
+            text_pdf_ext,
+            text_no_ext,
+            binary_unknown,
+        ] {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn missing_files_fall_back_to_the_extension() {
+        let missing_pdf = PathBuf::from("definitely-not-here-1.pdf");
+        let missing_md = PathBuf::from("definitely-not-here-2.md");
+        assert!(!missing_pdf.exists() && !missing_md.exists());
+        assert!(matches!(
+            classify_document_path(&missing_pdf),
+            LaunchMode::Pdf(_)
+        ));
+        assert!(matches!(
+            classify_document_path(&missing_md),
+            LaunchMode::Markdown(_)
+        ));
+    }
 }

@@ -109,7 +109,9 @@ pub struct Editor {
 }
 
 impl Editor {
-    /// An editor on a new, one-paragraph book.
+    /// An editor on a new, one-paragraph book (it seeds one sample
+    /// paragraph). Fixtures that need empty input should use
+    /// [`Self::with_book`] with `Book::new` instead.
     pub fn new() -> Self {
         let mut book = Book::new("Untitled");
         let _ = book.insert("The book opens on a page.");

@@ -29,6 +29,7 @@ use crate::geometry::{PointF, RectF, RectI, SizeF, Vec2d};
 use crate::input::{
     AutoScrollState, HitTarget, InputState, PointerCapture, ScrollbarDragState, ScrollbarPart,
 };
+use crate::measure::{MeasureState, MeasuredPoint};
 use crate::paint::scroll_exposed_regions;
 use crate::present::{Presenter, PresenterBackend, PresenterPreference, ScrollReuse};
 use crate::processing::{
@@ -592,6 +593,12 @@ pub struct ViewerApp {
     outline_synthesizer: OutlineSynthesizer,
     outline: Arc<[OutlineNode]>,
     clipboard: SystemClipboard,
+    /// Why the last copy failed, shown once in the status bar. A silent
+    /// clipboard (no display server at all) otherwise reads as a broken
+    /// selection.
+    clipboard_notice: Option<String>,
+    /// The page measurement tool. Off until `R` toggles it; see `measure.rs`.
+    measure: MeasureState,
     ui_text: UiTextRenderer,
     last_click: Option<(Instant, PointF, u8)>,
     history: NavigationHistory,
@@ -795,6 +802,8 @@ impl ViewerApp {
             options_visible: false,
             processing_proxy: None,
             processing_control: None,
+            clipboard_notice: None,
+            measure: MeasureState::default(),
             selection: SelectionModel::default(),
             outline_synthesizer: OutlineSynthesizer::default(),
             outline: Arc::clone(&engine.descriptor().outline),
@@ -1760,6 +1769,14 @@ impl ViewerApp {
             self.damage.mark_full();
             self.request_redraw();
         }
+        if self.measure.active && self.input.capture.is_none() {
+            let cursor = self.measure_point_at(self.input.pointer_position);
+            if cursor != self.measure.cursor {
+                self.measure.cursor = cursor;
+                self.damage.mark_full();
+                self.request_redraw();
+            }
+        }
         if let Some(state) = self.input.autoscroll {
             let offset = self.input.pointer_position - state.anchor;
             if !state.engaged && offset.length() > AUTOSCROLL_ENGAGE_DISTANCE {
@@ -2371,6 +2388,17 @@ impl ViewerApp {
                     self.scrollbar.begin_drag();
                 } else if geometry.track.contains(self.input.pointer_position) {
                     self.begin_track_gesture(geometry, self.input.modifiers.shift_key());
+                } else if self.measure.active
+                    && self.app_layout.canvas.contains(self.input.pointer_position)
+                {
+                    // The tool is modal while active: a canvas click measures
+                    // rather than following links or starting a selection.
+                    if let Some(point) = self.measure_point_at(self.input.pointer_position) {
+                        self.measure.page_report = None;
+                        self.measure.click(point);
+                        self.damage.mark_full();
+                        self.request_redraw();
+                    }
                 } else if self.app_layout.canvas.contains(self.input.pointer_position)
                     && let Some(link) = self
                         .hovered_link
@@ -2421,6 +2449,79 @@ impl ViewerApp {
         let substrate = Arc::clone(&self.page_artifacts.get(&placement.page)?.text);
         let position = hit_test(placement.page, &substrate, document)?;
         Some((position, substrate))
+    }
+
+    /// Resolve a screen point to a measurement endpoint. The reading is a
+    /// page display position in PDF points; the overlay position is derived
+    /// back from it so the two can never disagree. Snapping hugs the page
+    /// box within a few screen pixels, and Shift locks to the anchor's row
+    /// or column.
+    fn measure_point_at(&self, point: PointF) -> Option<MeasuredPoint> {
+        if !self.app_layout.canvas.contains(point) || self.zoom <= 0.0 {
+            return None;
+        }
+        let document = PointF {
+            x: (point.x - self.document_origin_x() + self.scroll.position.x) / self.zoom,
+            y: (point.y - self.app_layout.canvas.y + self.scroll.position.y) / self.zoom,
+        };
+        let placement = self.layout.page_at_y(document.y)?;
+        if document.x < placement.bounds.x || document.x > placement.bounds.right() {
+            return None;
+        }
+        let geometry = self
+            .engine
+            .descriptor()
+            .page_geometries
+            .get(placement.page.0 as usize)?;
+        let page_box = RectF {
+            x: 0.0,
+            y: 0.0,
+            width: geometry.display_width(),
+            height: geometry.display_height(),
+        };
+        let mut display = crate::measure::doc_to_display(document, placement);
+        display.x = display.x.clamp(page_box.x, page_box.right());
+        display.y = display.y.clamp(page_box.y, page_box.bottom());
+        display = crate::measure::snap_to_page_edges(display, page_box, 8.0 / self.zoom.max(0.05));
+        if self.input.modifiers.shift_key()
+            && let Some(anchor) = self.measure.anchor
+            && anchor.page == placement.page
+        {
+            display = crate::measure::shift_lock(anchor.display, display);
+        }
+        Some(MeasuredPoint {
+            page: placement.page,
+            doc: crate::measure::display_to_doc(display, placement),
+            display,
+        })
+    }
+
+    /// Report the current page's vector size (`A` while measuring): the
+    /// crop-box dimensions from the page geometry, not pixels. This is the
+    /// "is it really A4" answer.
+    fn report_page_size(&mut self) {
+        let Some(page) = self.status.current_page else {
+            return;
+        };
+        let Some(geometry) = self
+            .engine
+            .descriptor()
+            .page_geometries
+            .get(page.0 as usize)
+        else {
+            return;
+        };
+        let unit = self.measure.unit;
+        self.measure.page_report = Some(format!(
+            "Page {} · {} × {} ({} × {} pt)",
+            page.0 + 1,
+            unit.format(geometry.display_width()),
+            unit.format(geometry.display_height()),
+            geometry.display_width().round(),
+            geometry.display_height().round(),
+        ));
+        self.damage.mark_full();
+        self.request_redraw();
     }
 
     fn next_click_count(&mut self, point: PointF) -> u8 {
@@ -2816,6 +2917,28 @@ impl ViewerApp {
             Key::Character(character) if character.as_str().eq_ignore_ascii_case("s") => {
                 self.snap_to_page_boundary();
             }
+            Key::Character(character) if character.as_str().eq_ignore_ascii_case("r") => {
+                self.measure.toggle();
+                self.damage.mark_full();
+                self.request_redraw();
+            }
+            Key::Character(character)
+                if self.measure.active && character.as_str().eq_ignore_ascii_case("u") =>
+            {
+                self.measure.unit = self.measure.unit.cycle();
+                self.measure.page_report = None;
+                self.damage.mark_full();
+                self.request_redraw();
+            }
+            Key::Character(character)
+                if self.measure.active && character.as_str().eq_ignore_ascii_case("a") =>
+            {
+                self.report_page_size();
+            }
+            Key::Named(NamedKey::Escape) if self.measure.exit() => {
+                self.damage.mark_full();
+                self.request_redraw();
+            }
             _ => {}
         }
     }
@@ -2963,9 +3086,12 @@ impl ViewerApp {
         true
     }
 
-    fn copy_document_selection(&mut self) {
+    /// The selected document text, without touching the clipboard. Split
+    /// out so tests can pin extraction deterministically: clipboard delivery
+    /// depends on the session's display server.
+    fn selected_document_text(&self) -> String {
         let (Some(anchor), Some(focus)) = (self.selection.anchor, self.selection.focus) else {
-            return;
+            return String::new();
         };
         let (start, end) = if anchor <= focus {
             (anchor, focus)
@@ -2979,11 +3105,24 @@ impl ViewerApp {
                 pages.insert(page, text);
             }
         }
-        let text = self.selection.selected_text(&pages);
-        if !text.is_empty()
-            && let Err(error) = self.clipboard.set(text)
-        {
-            eprintln!("viewer clipboard: {error}");
+        self.selection.selected_text(&pages)
+    }
+
+    fn copy_document_selection(&mut self) {
+        let text = self.selected_document_text();
+        if text.is_empty() {
+            return;
+        }
+        match self.clipboard.set(text) {
+            Ok(()) => {
+                self.clipboard_notice = None;
+            }
+            Err(error) => {
+                eprintln!("viewer clipboard: {error}");
+                self.clipboard_notice = Some("Copy failed: no clipboard available".to_owned());
+                self.damage.mark_full();
+                self.request_redraw();
+            }
         }
     }
 
@@ -3824,6 +3963,8 @@ impl ViewerApp {
             ..SearchUiState::default()
         };
         self.selection = SelectionModel::default();
+        self.clipboard_notice = None;
+        self.measure = MeasureState::default();
         self.outline_synthesizer = OutlineSynthesizer::default();
         self.outline = Arc::clone(&self.engine.descriptor().outline);
         self.history = NavigationHistory::default();
@@ -3952,6 +4093,7 @@ impl ViewerApp {
                 scrollbar,
                 hover_preview,
                 link_peek,
+                &self.measure,
             );
             for placement in chrome_surfaces {
                 scene.draw_surface(
@@ -4520,6 +4662,12 @@ impl ViewerApp {
         }
         if self.processing_ui.running {
             status_text.push_str(&format!("   ·   {}", self.processing_ui.detail));
+        }
+        if let Some(notice) = &self.clipboard_notice {
+            status_text.push_str(&format!("   ·   {notice}"));
+        }
+        if let Some(measure) = self.measure.status_text() {
+            status_text.push_str(&format!("   ·   {measure}"));
         }
         let footer_width = (self.app_layout.status.width.round() as u32).clamp(256, 1024);
         let footer = self.ui_text.render(
@@ -5757,7 +5905,13 @@ fn open_document_engine(
     path: &std::path::Path,
     password: Option<&str>,
 ) -> Result<Arc<dyn DocumentEngine>, DocumentEngineError> {
-    if crate::cli::is_markdown_path(path) {
+    // Content wins over the extension (see `classify_document_path`): a PDF
+    // with a wrong or missing suffix opens as a PDF, and text misnamed
+    // `.pdf` renders as Markdown instead of failing in the PDF engine.
+    if matches!(
+        crate::cli::classify_document_path(path),
+        crate::cli::LaunchMode::Markdown(_)
+    ) {
         return crate::document::markdown::MarkdownEngine::open(path)
             .map(|engine| Arc::new(engine) as Arc<dyn DocumentEngine>);
     }
@@ -5904,6 +6058,7 @@ fn paint_scene(
     scrollbar: ScrollbarGeometry,
     hover_preview: Option<(PageIndex, f64)>,
     link_peek: Option<LinkPeekView>,
+    measure: &MeasureState,
 ) {
     painter.fill_rect(RectI::from(app_layout.toolbar), theme.colors.chrome);
     painter.fill_rect(RectI::from(app_layout.sidebar), theme.colors.chrome);
@@ -6022,6 +6177,14 @@ fn paint_scene(
             theme.colors.muted_text,
         );
     }
+    paint_measure_overlay(
+        painter,
+        measure,
+        document_origin_x,
+        app_layout.canvas.y,
+        zoom,
+        scroll,
+    );
     painter.pop_clip();
 
     paint_scrollbar_document_map(painter, theme, layout, scrollbar, search_hits);
@@ -6032,6 +6195,66 @@ fn paint_scene(
     }
     if let Some(peek) = link_peek {
         paint_link_peek(painter, theme, app_layout.canvas, layout, previews, peek);
+    }
+}
+
+/// Paint the measurement overlay: the dx/dy legs as two axis-aligned bars
+/// (exact with the scene's rect-only primitives, and they show the legs the
+/// status bar reports) plus endpoint squares. Runs inside the canvas clip.
+fn paint_measure_overlay(
+    painter: &mut SceneBuilder<'_>,
+    measure: &MeasureState,
+    document_origin_x: f64,
+    canvas_y: f64,
+    zoom: f64,
+    scroll: Vec2d,
+) {
+    const LEGS: u32 = 0xd0_d9_77_06;
+    const ENDPOINT: u32 = 0x00_b4_53_09;
+    let to_screen = |doc: PointF| PointF {
+        x: document_origin_x + doc.x * zoom - scroll.x,
+        y: canvas_y + doc.y * zoom - scroll.y,
+    };
+    let square = |center: PointF, half: f64| {
+        RectI::from(RectF {
+            x: center.x - half,
+            y: center.y - half,
+            width: half * 2.0,
+            height: half * 2.0,
+        })
+    };
+    if let Some(measured) = measure.live() {
+        let from = to_screen(measured.from.doc);
+        let to = to_screen(measured.to.doc);
+        let elbow = PointF { x: to.x, y: from.y };
+        // Horizontal leg, then vertical leg: an L from anchor to cursor.
+        painter.blend_rect(
+            RectI::from(RectF {
+                x: from.x.min(elbow.x),
+                y: from.y - 1.0,
+                width: (from.x - elbow.x).abs().max(2.0),
+                height: 2.0,
+            }),
+            LEGS,
+        );
+        painter.blend_rect(
+            RectI::from(RectF {
+                x: elbow.x - 1.0,
+                y: elbow.y.min(to.y),
+                width: 2.0,
+                height: (elbow.y - to.y).abs().max(2.0),
+            }),
+            LEGS,
+        );
+        painter.fill_rect(square(from, 3.5), ENDPOINT);
+        painter.fill_rect(square(to, 3.5), ENDPOINT);
+        painter.fill_rect(square(elbow, 2.5), ENDPOINT);
+    } else if let Some(anchor) = measure.anchor {
+        painter.fill_rect(square(to_screen(anchor.doc), 3.5), ENDPOINT);
+    } else if measure.active
+        && let Some(cursor) = measure.cursor
+    {
+        painter.stroke_rect(square(to_screen(cursor.doc), 4.5), 1, ENDPOINT);
     }
 }
 
@@ -6543,6 +6766,7 @@ mod tests {
                 scrollbar,
                 None,
                 None,
+                &MeasureState::default(),
             );
         }
         let mut compositor = crate::present::softbuffer::SoftwareCompositor::new(800, 600);
@@ -6578,6 +6802,339 @@ mod tests {
             first
                 .iter()
                 .any(|pixel| *pixel == Theme::light().colors.muted_text)
+        );
+    }
+
+    #[derive(Debug, Default)]
+    struct NullWake;
+
+    impl crate::document::session::WakeSink for NullWake {
+        fn wake(&self) {}
+    }
+
+    /// A viewer with a settled 1280x900 layout and no window: the input
+    /// handlers below are the same functions the event loop calls, so driving
+    /// them here exercises the real wiring behind live keystrokes and clicks.
+    fn headless_app(engine: Arc<dyn DocumentEngine>) -> ViewerApp {
+        let updates = crate::document::session::UpdateQueue::new(4096, Arc::new(NullWake));
+        let mut app = ViewerApp::new(engine, updates).expect("headless viewer");
+        app.app_layout = AppLayout::calculate(
+            SizeF {
+                width: 1280.0,
+                height: 900.0,
+            },
+            1.0,
+            false,
+            &app.theme.metrics,
+        );
+        app.scale_factor = 1.0;
+        app.zoom = 1.0;
+        app.update_scroll_extents();
+        app
+    }
+
+    fn press_key(app: &mut ViewerApp, text: &str, code: KeyCode) {
+        app.handle_key(
+            &Key::Character(text.into()),
+            PhysicalKey::Code(code),
+            ElementState::Pressed,
+        );
+    }
+
+    fn screen_of(app: &ViewerApp, doc: PointF) -> PointF {
+        PointF {
+            x: app.document_origin_x() + doc.x * app.zoom - app.scroll.position.x,
+            y: app.app_layout.canvas.y + doc.y * app.zoom - app.scroll.position.y,
+        }
+    }
+
+    fn click_canvas(app: &mut ViewerApp, screen: PointF) {
+        app.handle_cursor_moved(screen.x, screen.y);
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left);
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left);
+    }
+
+    /// The full ruler session through the real handlers: toggle, hover X/Y,
+    /// anchor zero reading, live length with legs and angle, pin, restart,
+    /// all five units, both Shift locks, edge snap, vector page size, and Esc
+    /// exit — plus the overlay commands a frame actually paints.
+    #[test]
+    fn measure_drive_through_real_handlers() {
+        use crate::document::markdown::MarkdownEngine;
+        let engine =
+            MarkdownEngine::open_source("drive.md", "# Drive\n\nMeasure this paragraph twice.\n");
+        let mut app = headless_app(Arc::new(engine));
+        let placement = app
+            .layout
+            .placement(PageIndex(0))
+            .expect("first page")
+            .clone();
+
+        press_key(&mut app, "r", KeyCode::KeyR);
+        assert!(app.measure.active, "R must toggle the tool on");
+        let idle = app.measure.status_text().expect("hover line");
+        assert!(idle.contains("hover for X/Y"), "{idle}");
+
+        let anchor_doc = PointF {
+            x: placement.bounds.x + 100.0,
+            y: placement.bounds.y + 100.0,
+        };
+        let anchor_screen = screen_of(&app, anchor_doc);
+        app.handle_cursor_moved(anchor_screen.x, anchor_screen.y);
+        let hover = app.measure.status_text().expect("X/Y line");
+        assert!(hover.contains("X ") && hover.contains("Y "), "{hover}");
+
+        click_canvas(&mut app, anchor_screen);
+        assert!(app.measure.anchor.is_some(), "first click anchors");
+        let zero = app.measure.status_text().expect("anchor line");
+        assert!(zero.contains("L 0.0 mm"), "{zero}");
+
+        let far_doc = PointF {
+            x: placement.bounds.x + 160.0,
+            y: placement.bounds.y + 140.0,
+        };
+        let far_screen = screen_of(&app, far_doc);
+        app.handle_cursor_moved(far_screen.x, far_screen.y);
+        let live = app.measure.status_text().expect("live line");
+        // 60 x 40 pt = 21.2 x 14.1 mm at 25.4:72, length 72.1 pt = 25.4 mm.
+        assert!(live.contains("L 25.4 mm"), "{live}");
+        assert!(live.contains("dx 21.2 mm"), "{live}");
+        assert!(live.contains("dy 14.1 mm"), "{live}");
+
+        click_canvas(&mut app, far_screen);
+        let pinned = app.measure.pinned.expect("second click pins");
+        assert!((pinned.length_points() - 72.111).abs() < 0.01);
+        assert!((pinned.angle_degrees() - 33.69).abs() < 0.01);
+
+        let third_doc = PointF {
+            x: placement.bounds.x + 40.0,
+            y: placement.bounds.y + 300.0,
+        };
+        let third_screen = screen_of(&app, third_doc);
+        click_canvas(&mut app, third_screen);
+        assert!(app.measure.anchor.is_some(), "third click restarts");
+        assert!(app.measure.pinned.is_none(), "restart clears the pin");
+
+        for (unit, abbrev) in [
+            (crate::measure::MeasureUnit::Centimeters, "cm"),
+            (crate::measure::MeasureUnit::Inches, "in"),
+            (crate::measure::MeasureUnit::Pixels, "px"),
+            (crate::measure::MeasureUnit::Points, "pt"),
+            (crate::measure::MeasureUnit::Millimeters, "mm"),
+        ] {
+            press_key(&mut app, "u", KeyCode::KeyU);
+            assert_eq!(app.measure.unit, unit);
+            assert_eq!(app.measure.unit.abbrev(), abbrev);
+        }
+
+        // Shift locks: a mostly-horizontal drift holds the row (level), a
+        // mostly-vertical one holds the column (plumb).
+        let locked_anchor = app.measure.anchor.expect("anchor for locks");
+        app.input.modifiers = ModifiersState::SHIFT;
+        let wide_doc = PointF {
+            x: locked_anchor.doc.x + 90.0,
+            y: locked_anchor.doc.y + 12.0,
+        };
+        app.handle_cursor_moved(screen_of(&app, wide_doc).x, screen_of(&app, wide_doc).y);
+        let level = app.measure.cursor.expect("level cursor");
+        assert_eq!(level.display.y, locked_anchor.display.y);
+        let tall_doc = PointF {
+            x: locked_anchor.doc.x + 9.0,
+            y: locked_anchor.doc.y + 80.0,
+        };
+        app.handle_cursor_moved(screen_of(&app, tall_doc).x, screen_of(&app, tall_doc).y);
+        let plumb = app.measure.cursor.expect("plumb cursor");
+        assert_eq!(plumb.display.x, locked_anchor.display.x);
+        app.input.modifiers = ModifiersState::empty();
+
+        // Edge snap: just inside the page box reads exactly the edge.
+        let geometry = app.engine.descriptor().page_geometries[0];
+        let edge_doc = crate::measure::display_to_doc(
+            PointF {
+                x: geometry.display_width() - 2.0,
+                y: 120.0,
+            },
+            &placement,
+        );
+        let edge_screen = screen_of(&app, edge_doc);
+        app.handle_cursor_moved(edge_screen.x, edge_screen.y);
+        let snapped = app.measure.cursor.expect("snapped cursor");
+        assert_eq!(snapped.display.x, geometry.display_width());
+
+        // Vector page size, then Esc exit.
+        app.status
+            .update(&app.layout, app.viewport_document(), app.zoom);
+        press_key(&mut app, "a", KeyCode::KeyA);
+        let report = app.measure.page_report.clone().expect("page report");
+        assert!(report.starts_with("Page 1 · "), "{report}");
+        app.handle_key(
+            &Key::Named(NamedKey::Escape),
+            PhysicalKey::Code(KeyCode::Escape),
+            ElementState::Pressed,
+        );
+        assert!(!app.measure.active, "Esc must exit the tool");
+        assert_eq!(app.measure.status_text(), None);
+
+        // The overlay a frame paints: amber dx/dy legs plus endpoints.
+        press_key(&mut app, "r", KeyCode::KeyR);
+        click_canvas(&mut app, anchor_screen);
+        app.handle_cursor_moved(far_screen.x, far_screen.y);
+        let mut scene = FrameScene::new(1280, 900);
+        {
+            let mut painter = scene.begin(0);
+            let scrollbar = app.scrollbar_geometry();
+            paint_scene(
+                &mut painter,
+                &app.theme,
+                app.app_layout,
+                &app.layout,
+                app.viewport_document(),
+                app.zoom,
+                app.scroll.position,
+                &app.intent,
+                &app.tile_snapshot,
+                &app.previews,
+                &mut Vec::new(),
+                &mut HashSet::new(),
+                &app.page_errors,
+                &app.page_artifacts,
+                &[],
+                None,
+                &app.selection,
+                scrollbar,
+                None,
+                None,
+                &app.measure,
+            );
+        }
+        assert!(
+            scene.commands.iter().any(|command| matches!(
+                command,
+                crate::scene::SceneCommand::AlphaSolid {
+                    color: 0xd0_d9_77_06,
+                    ..
+                }
+            )),
+            "the frame must carry the amber measure legs"
+        );
+    }
+
+    /// The same document point reads identically at 50% and 500% zoom: the
+    /// mapping is computed in PDF points, and zoom only scales the overlay.
+    #[test]
+    fn measure_readings_are_zoom_invariant() {
+        use crate::document::markdown::MarkdownEngine;
+        let engine = MarkdownEngine::open_source("drive.md", "# Drive\n\nText.\n");
+        let mut app = headless_app(Arc::new(engine));
+        press_key(&mut app, "r", KeyCode::KeyR);
+        let placement = app
+            .layout
+            .placement(PageIndex(0))
+            .expect("first page")
+            .clone();
+        let target = PointF {
+            x: placement.bounds.x + 61.0,
+            y: placement.bounds.y + 91.0,
+        };
+        let mut readings = Vec::new();
+        for zoom in [0.5, 5.0] {
+            app.zoom = zoom;
+            app.update_scroll_extents();
+            let screen = screen_of(&app, target);
+            let point = app
+                .measure_point_at(screen)
+                .expect("point resolves at any zoom");
+            readings.push(point.display);
+        }
+        assert!((readings[0].x - readings[1].x).abs() < 1e-6);
+        assert!((readings[0].y - readings[1].y).abs() < 1e-6);
+        assert!((readings[0].x - 61.0).abs() < 1e-6);
+        assert!((readings[0].y - 91.0).abs() < 1e-6);
+    }
+
+    /// Text selection on a rendered Markdown page through the real pointer
+    /// handlers, and the exact bytes Ctrl+C would hand to the clipboard.
+    #[test]
+    fn markdown_copy_drive_through_real_handlers() {
+        use crate::document::engine::CancellationFlag;
+        use crate::document::markdown::MarkdownEngine;
+        use crate::text::TextSubstrate;
+        let engine = MarkdownEngine::open_source("drive.md", "# Shopping\n\nBuy milk and eggs.\n");
+        let mut app = headless_app(Arc::new(engine));
+        // Compile page zero through its production placement, exactly as the
+        // conductor would, and ingest it down both UI paths: the search
+        // index (copy source) and the page artifacts (hit-test source).
+        let placement = app
+            .layout
+            .placement(PageIndex(0))
+            .expect("first page")
+            .clone();
+        let artifacts = app
+            .engine
+            .compile_page(
+                PageIndex(0),
+                placement.page_to_doc,
+                &CancellationFlag::default(),
+            )
+            .expect("compile markdown page");
+        let substrate: Arc<TextSubstrate> = Arc::clone(artifacts.text.substrate());
+        assert!(!substrate.characters.is_empty());
+        app.ingest_index_page(PageIndex(0), Arc::clone(&substrate), None);
+        let lease = app.memory.reserve(CacheCategory::Text, 1024);
+        app.page_artifacts.insert(
+            PageIndex(0),
+            PageViewArtifacts {
+                text: Arc::clone(&substrate),
+                structure: artifacts.structure.clone(),
+                _operation_count: 0,
+                _lowering_degraded: false,
+                _memory_lease: lease,
+            },
+        );
+
+        // Drag from the middle of "Buy" to the middle of "eggs".
+        let start_char = substrate
+            .characters
+            .iter()
+            .find(|character| character.unicode == Some('B'))
+            .expect("the Buy line");
+        let start_index = start_char.char_index;
+        let end_char = substrate
+            .characters
+            .iter()
+            .rfind(|character| character.unicode == Some('s') && character.char_index > start_index)
+            .expect("the eggs line");
+        let to_screen = |bounds: RectF| screen_of(&app, bounds.center());
+        // Start just left of B's center so the caret lands before it; end at
+        // the last g's center so the caret lands after it.
+        let from = {
+            let center = to_screen(start_char.bounds);
+            PointF {
+                x: center.x - 2.0,
+                y: center.y,
+            }
+        };
+        let to = to_screen(end_char.bounds);
+        app.handle_cursor_moved(from.x, from.y);
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left);
+        app.handle_cursor_moved(to.x, to.y);
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left);
+        assert!(app.selection.anchor.is_some(), "drag must anchor");
+        assert!(app.selection.focus.is_some(), "drag must extend");
+        let copied = app.selected_document_text();
+        assert!(
+            copied.contains("Buy milk and eggs"),
+            "selection must span the dragged words: {copied:?}"
+        );
+
+        // The Ctrl+C binding reaches the same bytes; delivery itself depends
+        // on the session clipboard, so this only pins the extraction.
+        app.input.modifiers = ModifiersState::CONTROL;
+        press_key(&mut app, "c", KeyCode::KeyC);
+        app.input.modifiers = ModifiersState::empty();
+        assert!(
+            app.selected_document_text().contains("Buy milk and eggs"),
+            "Ctrl+C must not disturb the selection"
         );
     }
 }

@@ -358,6 +358,46 @@ record docwrite.observation.pixelkit-text-limits/2 : observation {
     supersedes [ @docwrite.observation.pixelkit-text-limits/1 ]
 }
 
+record docwrite.observation.reader-clipboard-arboard/1 : observation {
+    title "Reader clipboard runs on arboard with Wayland support"
+    state verified
+    statement """
+        The reader's clipboard backend moved from copypasta 0.10 (X11-only ClipboardContext on Linux) to arboard 3.6 with default-features off plus wayland-data-control: arboard tries Wayland when WAYLAND_DISPLAY is set and falls back to X11, both round-tripped live, and copypasta is fully out of the lockfile. The lazy reconnect, external wl-copy/xclip/xsel fallback (non-blocking: holders never exit, so success is 'accepted stdin' with a reaper thread), status-bar notice, and stub-script tests are unchanged; no from-scratch crate was needed.
+        """
+    observed_at git:bfe8bd07dfb6dc568fe34fb51f466dc8f74f0dc7
+    method observation
+    watches [ "crates/liminal-reader/src/ui.rs", "Cargo.toml", "Cargo.lock" ]
+    author "dk"
+}
+
+record docwrite.observation.reader-clipboard-needs-external-fallback/1 : observation {
+    title "Reader clipboard needs external-tool fallback on Wayland"
+    state verified
+    statement """
+        copypasta 0.10's ClipboardContext is X11-only on Linux (wayland_clipboard needs an external wl_display winit does not expose), so on a Wayland-only session SystemClipboard::new() failed once at startup and every copy/paste silently no-oped with only a stderr line — which read as 'cannot copy from Markdown'. ui.rs now connects lazily with reconnect-on-failure, falls back to wl-copy/wl-paste then xclip/xsel, and surfaces a persistent failure in the status bar. The Markdown substrate-to-text leg itself was intact (pinned by markdown_selection_copies_through_the_search_index).
+        """
+    observed_at git:bfe8bd07dfb6dc568fe34fb51f466dc8f74f0dc7
+    method observation
+    watches [ "crates/liminal-reader/src/ui.rs", "Cargo.lock" ]
+    author "dk"
+}
+
+record docwrite.observation.reader-open-sniffs-content-first/1 : observation {
+    title "Reader open classifies by content before extension"
+    state verified
+    statement """
+        Document opening routed purely by extension at three gates (liminaldoc router, reader cli::is_markdown_path, app::open_document_engine), so a PDF with a wrong/missing suffix failed and text misnamed .pdf died in the PDF engine. Opening now classifies by content first (cli::classify_document_path: %PDF- magic scan, then text sniff, then extension), the launcher sniffs PDF magic before its extension check, and unknown binary keeps the PDF engine's honest parse error instead of rendering mojibake.
+        """
+    observed_at git:bfe8bd07dfb6dc568fe34fb51f466dc8f74f0dc7
+    method observation
+    watches [
+        "crates/liminal-reader/src/cli.rs",
+        "crates/liminal-reader/src/app.rs",
+        "crates/liminaldoc/src/main.rs"
+    ]
+    author "dk"
+}
+
 record docwrite.observation.viewer-paging-is-line-continuity/1 : observation {
     title "lege-viewer pages by line continuity and snaps only on command"
     state superseded

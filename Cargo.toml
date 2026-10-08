@@ -49,7 +49,9 @@ crossbeam-channel = "0.5"
 thiserror = "2.0.18"
 winit = "0.30.13"
 cosmic-text = "0.19.0"
-copypasta = "0.10"
+# Native clipboard on every desktop backend: X11 plus Wayland
+# (`wayland-data-control`), without the image helpers the reader never uses.
+arboard = { version = "3.6", default-features = false, features = ["wayland-data-control"] }
 tempfile = "3.27.0"
 open = "5.1"
 pulldown-cmark = "0.13"
@@ -77,3 +79,9 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 dbg_macro = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "debuginfo"

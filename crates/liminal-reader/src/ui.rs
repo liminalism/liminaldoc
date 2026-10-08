@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use copypasta::{ClipboardContext, ClipboardProvider};
+use arboard::Clipboard;
 use cosmic_text::{
     Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight,
 };
@@ -226,31 +226,141 @@ impl Default for UiTextRenderer {
 
 #[allow(missing_debug_implementations)]
 pub struct SystemClipboard {
-    context: Option<ClipboardContext>,
+    context: Option<Clipboard>,
 }
 
 impl SystemClipboard {
+    /// Connect lazily: a display that appears after startup (or a context
+    /// that went stale) must not wedge copy and paste for the session.
+    /// Every use retries the connection when there is none.
     pub fn new() -> Self {
-        Self {
-            context: ClipboardContext::new().ok(),
+        Self { context: None }
+    }
+
+    fn ensure_context(&mut self) -> Option<&mut Clipboard> {
+        if self.context.is_none() {
+            self.context = Clipboard::new().ok();
         }
+        self.context.as_mut()
     }
 
     pub fn get(&mut self) -> Result<String, &'static str> {
-        self.context
-            .as_mut()
-            .ok_or("clipboard unavailable")?
-            .get_contents()
-            .map_err(|_| "clipboard read failed")
+        if let Some(context) = self.ensure_context()
+            && let Ok(text) = context.get_text()
+        {
+            return Ok(text);
+        }
+        // Drop a poisoned context so the next use reconnects instead of
+        // failing on the same stale handle.
+        self.context = None;
+        external_clipboard_get().ok_or("clipboard unavailable")
     }
 
     pub fn set(&mut self, text: String) -> Result<(), &'static str> {
-        self.context
-            .as_mut()
-            .ok_or("clipboard unavailable")?
-            .set_contents(text)
-            .map_err(|_| "clipboard write failed")
+        if let Some(context) = self.ensure_context()
+            && context.set_text(text.clone()).is_ok()
+        {
+            return Ok(());
+        }
+        self.context = None;
+        if external_clipboard_set(&text) {
+            Ok(())
+        } else {
+            Err("clipboard unavailable")
+        }
     }
+}
+
+/// Copy out through a desktop clipboard tool when the linked backend cannot
+/// serve the session. Arboard already covers X11 and Wayland; the tools are
+/// belt and braces for forwarded, minimal, or otherwise odd sessions.
+/// Missing tools report false fast (failed spawn), so probing them on each
+/// copy costs nothing when none exist.
+#[cfg(unix)]
+fn external_clipboard_set(text: &str) -> bool {
+    const CANDIDATES: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard", "-i"]),
+        ("xsel", &["--clipboard", "--input"]),
+    ];
+    try_external_set(text, CANDIDATES)
+}
+
+/// Paste twin of [`external_clipboard_set`], for the search field on
+/// sessions the linked backend cannot serve.
+#[cfg(unix)]
+fn external_clipboard_get() -> Option<String> {
+    const CANDIDATES: &[(&str, &[&str])] = &[
+        ("wl-paste", &["-n"]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+    try_external_get(CANDIDATES)
+}
+
+#[cfg(not(unix))]
+fn external_clipboard_set(_text: &str) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn external_clipboard_get() -> Option<String> {
+    None
+}
+
+/// Pipe `text` into the first candidate that accepts it. Candidates are
+/// explicit so tests can point at stub scripts.
+///
+/// Success is "spawned and swallowed stdin", deliberately not "exited
+/// zero": clipboard holders (`wl-copy`, `xclip -i`) stay alive to serve
+/// the selection and never exit on their own, so waiting would wedge the
+/// UI on every copy. A reaper thread collects the exit status so the
+/// detached holder never becomes a zombie.
+fn try_external_set(text: &str, candidates: &[(&str, &[&str])]) -> bool {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    candidates.iter().any(|(program, args)| {
+        let mut child = match Command::new(program)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => return false,
+        };
+        let written = child
+            .stdin
+            .as_mut()
+            .is_some_and(|stdin| stdin.write_all(text.as_bytes()).is_ok());
+        drop(child.stdin.take());
+        if !written {
+            return false;
+        }
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        true
+    })
+}
+
+/// Read pasted text from the first candidate that runs and exits
+/// successfully. Candidates are explicit so tests can point at stub scripts.
+fn try_external_get(candidates: &[(&str, &[&str])]) -> Option<String> {
+    use std::process::{Command, Stdio};
+    candidates.iter().find_map(|(program, args)| {
+        let output = Command::new(program)
+            .args(*args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    })
 }
 
 impl Default for SystemClipboard {
@@ -399,5 +509,96 @@ mod tests {
                 "{sample:?} drew nothing: script fallback is broken"
             );
         }
+    }
+
+    /// Write an executable stub script and return its path. Stubs stand in
+    /// for `wl-copy`-style tools so the fallback is exercised without a
+    /// display server or real clipboard utilities installed.
+    #[cfg(unix)]
+    fn stub_script(name: &str, body: &str) -> std::path::PathBuf {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "liminaldoc-clipboard-{}-{name}",
+            std::process::id()
+        ));
+        let mut file = std::fs::File::create(&path).expect("stub script");
+        file.write_all(body.as_bytes()).expect("stub body");
+        drop(file);
+        let mut permissions = std::fs::metadata(&path).expect("stub meta").permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&path, permissions).expect("stub chmod");
+        path
+    }
+
+    /// The external fallback pipes the copied text into the first tool that
+    /// runs, skipping missing programs without failing the copy.
+    #[cfg(unix)]
+    #[test]
+    fn external_copy_skips_missing_tools_and_pipes_text() {
+        let mut sink_path = std::env::temp_dir();
+        sink_path.push(format!(
+            "liminaldoc-clipboard-{}-sink.out",
+            std::process::id()
+        ));
+        let sink = stub_script(
+            "sink.sh",
+            &format!("#!/bin/sh\ncat > '{}'\n", sink_path.display()),
+        );
+        let missing = sink.with_extension("missing");
+        let _ = std::fs::remove_file(&missing);
+        let sink_str = sink.to_string_lossy().into_owned();
+        let missing_str = missing.to_string_lossy().into_owned();
+        let ok = try_external_set(
+            "copied selection",
+            &[(missing_str.as_str(), &[]), (sink_str.as_str(), &[])],
+        );
+        assert!(ok, "the stub must receive the piped text");
+        // The copy returns once stdin is accepted, without waiting for the
+        // tool to finish, so poll for its output with a deadline.
+        let stored = (0..500)
+            .find_map(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                std::fs::read_to_string(&sink_path).ok()
+            })
+            .expect("stub output never landed");
+        assert_eq!(stored, "copied selection");
+        let _ = std::fs::remove_file(&sink);
+        let _ = std::fs::remove_file(&sink_path);
+    }
+
+    /// Clipboard holders never exit on their own (`wl-copy` and `xclip -i`
+    /// stay alive to serve the selection): the copy must return without
+    /// waiting for them, or every fallback copy wedges the UI.
+    #[cfg(unix)]
+    #[test]
+    fn external_copy_returns_without_waiting_for_the_holder() {
+        let holder = stub_script("hold.sh", "#!/bin/sh\ncat > /dev/null\nsleep 30\n");
+        let holder_str = holder.to_string_lossy().into_owned();
+        let started = std::time::Instant::now();
+        let ok = try_external_set("held text", &[(holder_str.as_str(), &[])]);
+        assert!(ok, "accepting stdin must count as success");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "the copy waited for a holder that sleeps 30s"
+        );
+        let _ = std::fs::remove_file(&holder);
+    }
+
+    /// A failing tool does not poison the attempt: the next candidate is
+    /// tried, and paste reads back what the tool printed.
+    #[cfg(unix)]
+    #[test]
+    fn external_paste_reads_from_the_first_working_tool() {
+        let failing = stub_script("fail.sh", "#!/bin/sh\nexit 3\n");
+        let printer = stub_script("print.sh", "#!/bin/sh\nprintf 'pasted'\n");
+        let failing_str = failing.to_string_lossy().into_owned();
+        let printer_str = printer.to_string_lossy().into_owned();
+        let pasted = try_external_get(&[(failing_str.as_str(), &[]), (printer_str.as_str(), &[])]);
+        let _ = std::fs::remove_file(&failing);
+        let _ = std::fs::remove_file(&printer);
+        assert_eq!(pasted.as_deref(), Some("pasted"));
+        assert_eq!(try_external_get(&[]), None);
     }
 }

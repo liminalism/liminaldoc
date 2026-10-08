@@ -824,6 +824,43 @@ mod tests {
         assert_eq!(hits.len(), 2);
     }
 
+    /// The copy path (`SelectionModel` over the search index) is
+    /// engine-agnostic, but Markdown is where a silent clipboard first read
+    /// as "copy is broken": pin the substrate-to-text leg so a future
+    /// substrate regression cannot hide behind the clipboard again.
+    #[test]
+    fn markdown_selection_copies_through_the_search_index() {
+        use crate::text::{SelectionModel, TextPosition};
+        let engine = MarkdownEngine::open_source("sample.md", SAMPLE);
+        let (artifacts, _) = compile_first_page(&engine);
+        let substrate = Arc::clone(artifacts.text.substrate());
+        let mut index = SearchIndex::default();
+        index.insert(PageIndex(0), Arc::clone(&substrate));
+        // Imitate `copy_document_selection`: page text out of the index,
+        // sliced by the selection's UTF-16 offsets.
+        let mut pages = std::collections::BTreeMap::new();
+        pages.insert(
+            PageIndex(0),
+            index.page_text(PageIndex(0)).expect("indexed page text"),
+        );
+        let mut selection = SelectionModel::default();
+        selection.begin(TextPosition {
+            page: PageIndex(0),
+            utf16_index: 0,
+        });
+        selection.extend(TextPosition {
+            page: PageIndex(0),
+            utf16_index: substrate.utf16.len(),
+        });
+        let copied = selection.selected_text(&pages);
+        assert!(copied.contains("Shopping"), "lost heading: {copied:?}");
+        assert!(copied.contains("milk"), "lost body: {copied:?}");
+        assert!(
+            copied.len() >= substrate.utf16.len() / 2,
+            "suspiciously short copy: {copied:?}"
+        );
+    }
+
     #[test]
     fn raster_tile_paints_text_over_paper() {
         let engine = MarkdownEngine::open_source("sample.md", SAMPLE);

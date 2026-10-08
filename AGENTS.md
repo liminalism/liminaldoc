@@ -8,6 +8,10 @@ Build from here with `cargo check --workspace --all-targets`. The PDF engine
 and PixelKit are sibling workspaces during this extraction. Their paths must
 be remapped before packaging a distributable release.
 
+Run `akr` commands from this repository root. The sibling checkouts (notably
+Lege-ecosystem) hold separate ledgers, so invoking from the wrong cwd silently
+selects the wrong project and its unrelated validation errors.
+
 ## Project knowledge (AKR)
 
 Durable project knowledge lives in `.akr/` as typed records, not in Markdown.
