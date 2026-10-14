@@ -6,9 +6,9 @@
 use docwrite_model::{Book, ChapterId, ModelError, PartId};
 
 /// Width of the sidebar the window paints and hit-tests.
-pub const SIDEBAR_W: i32 = 180;
-const ROW_H: i32 = 28;
-const ROW_TOP: i32 = 16;
+pub const SIDEBAR_W: i32 = 120;
+const ROW_H: i32 = 20;
+const ROW_TOP: i32 = crate::toolbar::TOOLBAR_H as i32 + 4;
 
 /// What a sidebar row represents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +65,7 @@ impl BookMap {
     pub fn row_at(&self, x: f32, y: f32, nrows: usize) -> Option<usize> {
         // The caller decides whether the point is inside the (resizable)
         // sidebar; this only maps a height to a row.
-        if x < 0.0 || nrows == 0 {
+        if x < 0.0 || y < ROW_TOP as f32 || nrows == 0 {
             return None;
         }
         let index = (y as i32 - ROW_TOP) / ROW_H;

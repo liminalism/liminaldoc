@@ -7,7 +7,7 @@ use docwrite_typeset::Face;
 use crate::{Editor, Prompt};
 
 /// Height of one toolbar row in logical pixels.
-pub const TOOLBAR_H: f32 = 34.0;
+pub const TOOLBAR_H: f32 = 24.0;
 
 /// Paragraph kinds the style button cycles through, with their labels.
 const KINDS: [(&str, BlockKind); 7] = [
@@ -23,6 +23,8 @@ const KINDS: [(&str, BlockKind); 7] = [
 /// Something the toolbar can do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// A file command handled by the window host.
+    File(crate::tabs::TabCommand),
     /// Toggle a character mark.
     Mark(Mark),
     /// Set the next paragraph style.
@@ -124,16 +126,22 @@ pub struct Button {
 
 impl Editor {
     /// Toolbar height in window pixels; fullscreen reserves only an open prompt.
-    pub(crate) fn toolbar_height(&self) -> i32 {
+    pub fn toolbar_height(&self) -> i32 {
         if self.fullscreen && self.prompt.is_none() {
             0
         } else {
-            self.toolbar_buttons(self.frame_width)
-                .last()
-                .map_or((TOOLBAR_H * self.ui_scale).round() as i32, |button| {
-                    button.y + button.h
-                })
+            (TOOLBAR_H * self.ui_scale).round() as i32
         }
+    }
+
+    /// A file command requested by a toolbar click, for the host's dialogs.
+    pub fn take_file_command(&mut self) -> Option<crate::tabs::TabCommand> {
+        self.file_command.take()
+    }
+
+    fn page_counter_width(&self) -> i32 {
+        let digits = self.pager.pages().to_string().len();
+        ((70.0_f32).max((digits * 2 + 3) as f32 * 6.0 + 12.0) * self.ui_scale).ceil() as i32
     }
 
     /// The paragraph style name of the caret's block.
@@ -160,81 +168,111 @@ impl Editor {
         if self.fullscreen || self.prompt.is_some() {
             return Vec::new();
         }
+        use crate::tabs::TabCommand;
         let s = self.ui_scale;
-        let left = self.sidebar_width() + (10.0 * s) as i32;
-        let mut x = left;
-        let mut y = (6.0 * s) as i32;
-        let h = (28.0 * s) as i32;
-        let row_height = (TOOLBAR_H * s).round() as i32;
+        let compact = width as f32 / s < 900.0;
+        let mut x = (4.0 * s).round() as i32;
         let mut out = Vec::new();
-        let mut push = |action: Action, label: String, active: bool, w: f32, gap: f32| {
-            let w = (w * s) as i32;
-            if x > left && x + w > width {
-                x = left;
-                y += row_height;
-            }
+        let mut push = |action, label: String, active, wide: f32, narrow: f32| {
+            let w = ((if compact { narrow } else { wide }) * s).round() as i32;
             out.push(Button {
                 action,
                 label,
                 active,
                 x,
-                y,
+                y: (2.0 * s) as i32,
                 w,
-                h,
+                h: (20.0 * s) as i32,
             });
-            x += w + (gap * s) as i32;
+            x += w + s.round().max(1.0) as i32;
         };
-        let marks = [
-            (Mark::Bold, "B"),
-            (Mark::Italic, "I"),
-            (Mark::SmallCaps, "Sc"),
-            (Mark::Superscript, "x\u{b2}"),
-            (Mark::Subscript, "x\u{2082}"),
-        ];
-        for (number, (mark, label)) in marks.into_iter().enumerate() {
-            let gap = if number + 1 == marks.len() { 14.0 } else { 4.0 };
+        for (command, label, wide, narrow) in [
+            (TabCommand::New, "New", 30.0, 24.0),
+            (TabCommand::Open, "Open", 34.0, 28.0),
+            (TabCommand::OpenBook, "Book", 34.0, 28.0),
+            (TabCommand::SaveAs, "Save as", 48.0, 38.0),
+        ] {
+            push(Action::File(command), label.into(), false, wide, narrow);
+        }
+        for (mark, label, wide, narrow) in [
+            (Mark::Bold, "B", 20.0, 16.0),
+            (Mark::Italic, "I", 20.0, 16.0),
+            (Mark::SmallCaps, "Sc", 24.0, 20.0),
+            (Mark::Superscript, "x²", 24.0, 20.0),
+            (Mark::Subscript, "x₂", 24.0, 20.0),
+        ] {
             push(
                 Action::Mark(mark),
                 label.into(),
                 self.book.selection_has(mark),
-                30.0,
-                gap,
+                wide,
+                narrow,
             );
         }
-        push(
-            Action::CycleStyle,
-            format!("\u{b6} {}", self.current_style_label()),
-            false,
-            120.0,
-            4.0,
-        );
+        let style = match self.current_style_label() {
+            "Block Quote" if compact => "Quote",
+            "Scene Break" if compact => "Break",
+            "Chapter Title" if compact => "Title",
+            "Bibliography" if compact => "Biblio",
+            label => label,
+        };
+        push(Action::CycleStyle, format!("¶ {style}"), false, 82.0, 48.0);
+        let align = self.current_alignment_label();
         push(
             Action::CycleAlign,
-            format!("Align {}", self.current_alignment_label()),
+            if compact {
+                align.into()
+            } else {
+                format!("Align {align}")
+            },
             false,
-            116.0,
-            10.0,
+            64.0,
+            40.0,
         );
-        push(Action::Smaller, "A-".into(), false, 34.0, 4.0);
-        push(Action::Larger, "A+".into(), false, 34.0, 14.0);
-        push(Action::NewChapter, "+ Chapter".into(), false, 84.0, 4.0);
-        push(Action::RenameChapter, "Rename".into(), false, 66.0, 14.0);
-        push(Action::Footnote, "Footnote".into(), false, 74.0, 4.0);
-        push(Action::Endnote, "Endnote".into(), false, 70.0, 14.0);
+        push(Action::Smaller, "A-".into(), false, 24.0, 20.0);
+        push(Action::Larger, "A+".into(), false, 24.0, 20.0);
+        push(Action::NewChapter, "+ Ch".into(), false, 42.0, 30.0);
+        push(
+            Action::RenameChapter,
+            if compact { "Ren" } else { "Rename" }.into(),
+            false,
+            48.0,
+            30.0,
+        );
+        push(
+            Action::Footnote,
+            if compact { "Fn" } else { "Footnote" }.into(),
+            false,
+            54.0,
+            26.0,
+        );
+        push(
+            Action::Endnote,
+            if compact { "En" } else { "Endnote" }.into(),
+            false,
+            54.0,
+            26.0,
+        );
         push(
             Action::OpenSource,
-            "Source\u{2026}".into(),
+            if compact { "Src" } else { "Source" }.into(),
             false,
-            70.0,
-            14.0,
+            48.0,
+            30.0,
         );
-        push(Action::Spread, "Spread".into(), self.spread, 62.0, 4.0);
+        push(
+            Action::Spread,
+            if compact { "2pg" } else { "Spread" }.into(),
+            self.spread,
+            48.0,
+            30.0,
+        );
         push(
             Action::Contents,
-            "Contents".into(),
+            "TOC".into(),
             self.book.has_contents(),
-            78.0,
-            4.0,
+            36.0,
+            30.0,
         );
         out
     }
@@ -242,6 +280,7 @@ impl Editor {
     /// Run a toolbar action.
     pub fn run_action(&mut self, action: Action) {
         match action {
+            Action::File(command) => self.file_command = Some(command),
             Action::Mark(mark) => self.toggle_mark(mark),
             Action::CycleStyle => self.cycle_block_style(),
             Action::CycleAlign => self.cycle_alignment(),
@@ -688,7 +727,7 @@ impl Editor {
         pages: u32,
     ) {
         let s = self.ui_scale;
-        let left = self.sidebar_width();
+        let left = 0;
         let height = self.toolbar_height();
         painter.fill_rect(
             pixelkit_raster::Rect::new(left, 0, width - left, height),
@@ -703,8 +742,8 @@ impl Editor {
             ),
             self.theme_now.rule,
         );
-        let size = 14.0 * s;
-        let baseline = (26.0 * s) as i32;
+        let size = if width as f32 / s < 900.0 { 10.0 } else { 11.0 } * s;
+        let baseline = (16.0 * s) as i32;
         if let Some(prompt) = self.prompt.clone() {
             let label = prompt.error.clone().unwrap_or_else(|| {
                 if prompt.kind == PromptKind::GoToPage {
@@ -717,7 +756,7 @@ impl Editor {
                 painter,
                 face,
                 &label,
-                left + (14.0 * s) as i32,
+                left + (6.0 * s) as i32,
                 baseline,
                 size,
             );
@@ -725,13 +764,13 @@ impl Editor {
                 .shape(&label, size, &[])
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
-            let field_x = left + (22.0 * s) as i32 + label_w as i32;
+            let field_x = left + (12.0 * s) as i32 + label_w as i32;
             painter.fill_rect(
                 pixelkit_raster::Rect::new(
                     field_x,
-                    (6.0 * s) as i32,
-                    width - field_x - (14.0 * s) as i32,
-                    (28.0 * s) as i32,
+                    (2.0 * s) as i32,
+                    width - field_x - (6.0 * s) as i32,
+                    (20.0 * s) as i32,
                 ),
                 self.theme_now.page,
             );
@@ -740,9 +779,9 @@ impl Editor {
                     .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                     .unwrap_or(0.0)
             };
-            let inset = (8.0 * s) as i32;
+            let inset = (4.0 * s) as i32;
             let inner_x = field_x + inset;
-            let inner_w = (width - (14.0 * s) as i32 - inset - inner_x).max(1);
+            let inner_w = (width - (6.0 * s) as i32 - inset - inner_x).max(1);
             let caret_w = s.round().max(1.0) as i32;
             let caret_offset = text_width(prompt.caret()).round() as i32;
             let scroll = (caret_offset + caret_w - inner_w).max(0);
@@ -751,9 +790,9 @@ impl Editor {
             let text_h = size.ceil() as i32 + (4.0 * s) as i32;
             painter.push_clip(pixelkit_raster::Rect::new(
                 inner_x,
-                (6.0 * s) as i32,
+                (2.0 * s) as i32,
                 inner_w,
-                (28.0 * s) as i32,
+                (20.0 * s) as i32,
             ));
             let selected = prompt.selection();
             if !selected.is_empty() {
@@ -794,14 +833,11 @@ impl Editor {
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
             let x = button.x + ((button.w as f32 - label_w) / 2.0) as i32;
-            self.paint_label(
-                painter,
-                face,
-                &button.label,
-                x,
-                button.y + (20.0 * s) as i32,
-                size,
-            );
+            painter.push_clip(pixelkit_raster::Rect::new(
+                button.x, button.y, button.w, button.h,
+            ));
+            self.paint_label(painter, face, &button.label, x, baseline, size);
+            painter.pop_clip();
         }
         if pages > 0 {
             let top = self.pager.page_top();
@@ -819,12 +855,13 @@ impl Editor {
                 .shape(&status, size, &[])
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
-            let x = width - status_w as i32 - (14.0 * s) as i32;
-            if let Some(last) = self.toolbar_buttons(width).last()
-                && x > last.x + last.w + (10.0 * s) as i32
-            {
-                self.paint_label(painter, face, &status, x, last.y + (20.0 * s) as i32, size);
-            }
+            let x = width - status_w as i32 - (5.0 * s) as i32;
+            let reserved = self.page_counter_width();
+            painter.fill_rect(
+                pixelkit_raster::Rect::new(width - reserved, 0, reserved, height - 1),
+                self.theme_now.chrome,
+            );
+            self.paint_label(painter, face, &status, x, baseline, size);
         }
     }
 }

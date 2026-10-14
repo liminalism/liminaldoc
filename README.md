@@ -19,7 +19,11 @@ The reader keeps its Lege rendering, navigation, search, selection and processin
 ## Writing and navigation
 
 The writer prioritizes a minimal, terminal-like appearance and low latency for
-books and large articles. Page Up and Page Down turn physical pages. Ctrl+G
+books and large articles. File and editing controls share one compact, persistent
+row below the title bar; a slim document-tab row appears when multiple documents
+are open. The chapter map uses a narrow, resizable column. Page Up and Page Down
+turn physical pages, fitted to the available height so their text stays visible.
+The page counter keeps a reserved space on the command row. Ctrl+G
 (Cmd+G on macOS) opens a small **Go to page** prompt: enter a page number and
 press Enter, or Escape to cancel. The prompt also works in fullscreen (F11,
 or Ctrl+Shift+F / Cmd+Shift+F if the desktop reserves F11).

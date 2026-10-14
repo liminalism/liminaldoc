@@ -146,7 +146,8 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         last_title: String::new(),
         ui_scale: 1.0,
     };
-    let config = pixelkit_windowing::WindowConfig::new(&title, 1100.0, 800.0);
+    let config =
+        pixelkit_windowing::WindowConfig::new(&title, 1100.0, 800.0).min_size(640.0, 400.0);
     pixelkit_windowing::run_app(app, config).map_err(|err| {
         let message = err.to_string();
         let lower = message.to_ascii_lowercase();
@@ -629,7 +630,7 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         self.tabs.set_ui_scale(scale.0);
         let width = buffer.width;
         let height = buffer.height;
-        self.tab_height = if self.tabs.is_fullscreen() {
+        self.tab_height = if self.tabs.is_fullscreen() || self.tabs.len() == 1 {
             0
         } else {
             TabStripLayout::new(width as i32, scale.0, self.tabs.len()).height
@@ -637,17 +638,17 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         let content_height = height.saturating_sub(self.tab_height as u32).max(1);
         self.content_buffer.resize(width, content_height);
         self.tabs.paint(&mut self.content_buffer);
+        let top = self.tabs.toolbar_height();
+        let split = (top as usize * width as usize).min(self.content_buffer.pixels.len());
+        buffer.pixels[..split].copy_from_slice(&self.content_buffer.pixels[..split]);
         let offset = self.tab_height as usize * width as usize;
-        let copy = self
-            .content_buffer
-            .pixels
-            .len()
-            .min(buffer.pixels.len().saturating_sub(offset));
-        buffer.pixels[offset..offset + copy].copy_from_slice(&self.content_buffer.pixels[..copy]);
+        let end = (self.content_buffer.pixels.len() + offset).min(buffer.pixels.len());
+        buffer.pixels[split + offset..end]
+            .copy_from_slice(&self.content_buffer.pixels[split..end - offset]);
         if self.tab_height > 0 {
             let labels = self.tabs.labels();
             let active = self.tabs.active_index();
-            self.tabs.paint_tab_strip(buffer, &labels, active);
+            self.tabs.paint_tab_strip(buffer, &labels, active, top);
         }
         if self.announced {
             return;
@@ -815,19 +816,31 @@ impl pixelkit_windowing::PixelApp for EditorApp {
 
     fn on_cursor(&mut self, x: f32, y: f32) {
         self.cursor = (x, y);
-        self.tabs.hover(x, y - self.tab_height as f32);
+        let top = self.tabs.toolbar_height() as f32;
+        let offset = if y >= top + self.tab_height as f32 {
+            self.tab_height as f32
+        } else {
+            0.0
+        };
+        self.tabs.hover(x, y - offset);
     }
 
     fn on_mouse(&mut self, button: pixelkit_shell::MouseButton, pressed: bool) {
         if button == pixelkit_shell::MouseButton::Left {
-            if self.tab_height > 0 && self.cursor.1 < self.tab_height as f32 {
+            let top = self.tabs.toolbar_height() as f32;
+            if self.tab_height > 0
+                && self.cursor.1 >= top
+                && self.cursor.1 < top + self.tab_height as f32
+            {
                 if pressed {
                     let layout = TabStripLayout::new(
                         self.content_buffer.width as i32,
                         self.ui_scale,
                         self.tabs.len(),
                     );
-                    if let Some(command) = layout.hit(self.cursor.0 as i32, self.cursor.1 as i32) {
+                    if let Some(command) =
+                        layout.hit(self.cursor.0 as i32, (self.cursor.1 - top) as i32)
+                    {
                         self.run_tab_command(command);
                     }
                 } else {
@@ -836,6 +849,9 @@ impl pixelkit_windowing::PixelApp for EditorApp {
                 return;
             }
             self.tabs.pointer(pressed);
+            if let Some(command) = self.tabs.take_file_command() {
+                self.run_tab_command(command);
+            }
         }
     }
 
@@ -870,7 +886,12 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             .caret_area()
             .map(|caret| pixelkit_windowing::ImeCursorArea {
                 x: caret.x,
-                y: caret.y + self.tab_height as f64,
+                y: caret.y
+                    + if caret.y >= self.tabs.toolbar_height() as f64 {
+                        self.tab_height as f64
+                    } else {
+                        0.0
+                    },
                 width: caret.width,
                 height: caret.height,
             })
@@ -1186,11 +1207,57 @@ mod input_tests {
         let mut buffer = pixelkit_raster::WindowBuffer::new(1100, 800);
         app.render(&mut buffer, pixelkit_shell::Scale::ONE);
         assert!(app.tab_height > 0);
-        app.on_cursor(20.0, 12.0);
+        app.on_cursor(20.0, app.tabs.toolbar_height() as f32 + 10.0);
         app.on_mouse(pixelkit_shell::MouseButton::Left, true);
         assert_eq!(app.tabs.active_index(), 0);
         assert_eq!(app.tabs.book().plain_text(), "first");
         app.tabs.select(1);
         assert_eq!(app.tabs.book().plain_text(), "second");
+    }
+
+    #[test]
+    fn compact_file_row_and_tab_offsets_keep_mouse_and_ime_aligned() {
+        let mut app = app();
+        let mut buffer = pixelkit_raster::WindowBuffer::new(2200, 1400);
+        let scale = pixelkit_shell::Scale::new(2.0);
+        app.render(&mut buffer, scale);
+        assert_eq!(
+            app.tab_height, 0,
+            "one manuscript uses the native title bar"
+        );
+        let new = app
+            .tabs
+            .toolbar_buttons(2200)
+            .into_iter()
+            .find(|button| button.action == docwrite_app::Action::File(TabCommand::New))
+            .unwrap();
+        app.on_cursor((new.x + new.w / 2) as f32, (new.y + new.h / 2) as f32);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        assert_eq!(app.tabs.len(), 2);
+        app.tabs.type_text("second manuscript");
+        app.render(&mut buffer, scale);
+        assert_eq!(app.tabs.toolbar_height(), 48);
+        assert_eq!(app.tab_height, 40);
+        let ime = app.ime_cursor_area().unwrap();
+        assert_eq!(
+            buffer.pixels[ime.y as usize * 2200 + ime.x as usize],
+            app.tabs.theme().ink
+        );
+        app.on_cursor(12.0, 60.0);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        assert_eq!(app.tabs.active_index(), 0);
+        app.tabs.open_prompt(PromptKind::GoToPage);
+        app.render(&mut buffer, scale);
+        let ime = app.ime_cursor_area().unwrap();
+        assert!(
+            ime.y + ime.height <= 48.0,
+            "prompt IME stays in the first row"
+        );
+        assert_eq!(
+            buffer.pixels[ime.y as usize * 2200 + ime.x as usize],
+            app.tabs.theme().ink
+        );
     }
 }

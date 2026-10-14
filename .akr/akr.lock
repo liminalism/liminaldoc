@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.2"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:7523577e22d2cd4a5a5bdd7f11439e103ef77d5eaab6e223699719f9c94d8f58"
+    source_graph "sha256:0ff0e05d34614167340e960324f52d4b7063986407363a57b46736cdf292a196"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:08f334f60a86bf72dcc7f7c2ae34056fb84a8c37065af7c0caa051c94ed7d4cb"
-    records 62
+    hash "sha256:d7abf66af64fa327f6d16c1f4fb9fc6ef14446caefcc384f75430cc76b70a081"
+    records 64
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:57d0a83745095aced18f0cc833146b9d7f12af80d8660787d304aea8d517deac"
-    records 26
+    hash "sha256:c3288d619f2b6f6568d10358be1af51baf2fb7f4dc8c0eca9e87d7d31de8b9b0"
+    records 27
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,7 +44,7 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:ec44420b65380444d0b1d5dccd39c433cd46f7e9fd4b1b6fcf0a6db4dac874f3"
+    hash "sha256:a6228958a5f51c3f95d6104730876f7581dd9cd64046b25a666f92d8c8598557"
     records 31
 }
 
@@ -925,6 +925,16 @@ seal @docwrite.evidence.writer-autosave-interval/1 {
     hash "sha256:4e16d4c7c47a0a1c654548b45960deedc988fc4b0ecb4dd920e712e450c2ffc1"
 }
 
+seal @docwrite.evidence.writer-compact-chrome/1 {
+    state verified
+    hash "sha256:d5f6858c40639a65cb18176dfb74b91c0b9320ca1918c4ed2d292a66289e2c4a"
+}
+
+seal @docwrite.evidence.writer-compact-window/1 {
+    state verified
+    hash "sha256:b86648f3aff58782e4d3c2758fd0e9a89d34049b4bda31aa7b1c4163bcc1b9a6"
+}
+
 seal @docwrite.evidence.writer-page-seek-behavior/1 {
     state verified
     hash "sha256:40b1f9f28e855ff9672c8a244497824abcdd41b9fa2b48dfd508c1d7394e3edb"
@@ -1205,6 +1215,11 @@ seal @docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 {
     hash "sha256:5d951208ff781b6d852ec1eda19f514fb384225493f4a26920436aceaa6c8255"
 }
 
+seal @docwrite.papercut.compacting-writer-chrome-exposed-tests-tied-to/1 {
+    state verified
+    hash "sha256:0988dc2b57e655dd46b48b0848d5c5e1539573cfb6a7a43c8b54685b9f633e9f"
+}
+
 seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 {
     state superseded
     hash "sha256:01f3f5f86b17684d13638cf8a3bf38cc3d438f6beb889faea0e48234558f35d8"
@@ -1383,6 +1398,11 @@ seal @docwrite.work.writer-autosave-interval/1 {
 seal @docwrite.work.writer-page-seek/1 {
     state completed
     hash "sha256:019dba7c447d521d7f42b5c231d824948ce29a9ee5dc25abee3db69fcc7495de"
+}
+
+seal @docwrite.work.writer-page-visibility/1 {
+    state completed
+    hash "sha256:5f8e22d52c2ff74cba82a35c5ded196fdffce28f2ba2cb271c02b26b2fd6f0fe"
 }
 
 seal @docwrite.work.writer-prompt-editing/1 {

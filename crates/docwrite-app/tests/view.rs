@@ -62,7 +62,7 @@ fn the_book_map_resizes_folds_into_a_tab_and_comes_back() {
 }
 
 #[test]
-fn full_screen_is_edge_to_edge_wordperfect_with_a_status_line() {
+fn full_screen_uses_wordperfect_background_with_a_status_line() {
     let mut editor = Editor::new();
     editor.type_text(" More words for the page.");
     assert_eq!(editor.poll_fullscreen(), None);
@@ -90,8 +90,7 @@ fn full_screen_is_edge_to_edge_wordperfect_with_a_status_line() {
         .filter(|pixel| **pixel != WORDPERFECT.desk && **pixel != WORDPERFECT.rule)
         .count();
     assert!(ink > 500, "text is drawn: {ink}");
-    // The page spans the whole width: text starts inside the left margin
-    // band scaled up, far from the old centered column.
+    // The page fits inside the screen, with the same blue field around it.
     assert!(editor.caret_area().is_some());
     // The status line's text sits in the bottom band.
     let bottom_ink = frame.pixels[(780 * 1100) as usize..]
@@ -158,7 +157,8 @@ fn spread_view_shows_facing_pages_and_pages_by_spread() {
     // Two pages are drawn side by side: paper left and right of the middle.
     editor.jump_to_page(2);
     editor.paint(&mut frame);
-    let row = 400 * 1400;
+    // Sample the blank upper margin, so glyph ink cannot affect the page bounds.
+    let row = (editor.toolbar_height() as usize + 5) * 1400;
     let sidebar = editor.sidebar_logical_width() as usize;
     let middle = sidebar + (1400 - sidebar) / 2;
     let paper = |from: usize, to: usize| {

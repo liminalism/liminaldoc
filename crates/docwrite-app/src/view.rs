@@ -87,7 +87,7 @@ pub const WORDPERFECT: Theme = Theme {
 };
 
 /// Sidebar widths in logical pixels.
-const SIDEBAR_MIN_OPEN: f32 = 140.0;
+const SIDEBAR_MIN_OPEN: f32 = 96.0;
 /// Released narrower than this, the sidebar folds into its tab.
 const SIDEBAR_COLLAPSE_BELOW: f32 = 90.0;
 const SIDEBAR_MAX: f32 = 640.0;
@@ -95,7 +95,7 @@ const SIDEBAR_MAX: f32 = 640.0;
 const HANDLE: f32 = 5.0;
 /// The tab a collapsed sidebar leaves at the window's left edge.
 const TAB_W: f32 = 22.0;
-const TAB_TOP: f32 = 16.0;
+const TAB_TOP: f32 = crate::toolbar::TOOLBAR_H + 4.0;
 const TAB_H: f32 = 84.0;
 
 /// The Book Map's width and whether it is folded away.
@@ -315,6 +315,13 @@ impl Editor {
     /// The pointer shape for where the pointer is now.
     pub fn pointer_shape(&self) -> PointerShape {
         let (x, y) = self.cursor;
+        if !self.sidebar.dragging && y < self.toolbar_height() as f32 {
+            return if self.button_at(x, y, self.frame_width).is_some() {
+                PointerShape::Hand
+            } else {
+                PointerShape::Arrow
+            };
+        }
         if self.sidebar.dragging || self.near_sidebar_edge(x) {
             PointerShape::ResizeColumn
         } else if self.on_tab(x, y) || (x < self.sidebar_width() as f32) {
@@ -374,13 +381,13 @@ impl Editor {
         height: i32,
     ) {
         let s = self.ui_scale;
-        let bar = (30.0 * s) as i32;
+        let bar = (22.0 * s) as i32;
         painter.fill_rect(
             pixelkit_raster::Rect::new(0, height - bar, width, bar),
             WORDPERFECT.desk,
         );
-        let size = 15.0 * s;
-        let baseline = height - (9.0 * s) as i32;
+        let size = 11.0 * s;
+        let baseline = height - (7.0 * s) as i32;
         let title = self.book.title().to_string();
         self.paint_label(painter, face, &title, (16.0 * s) as i32, baseline, size);
         let status = match self.caret_status {

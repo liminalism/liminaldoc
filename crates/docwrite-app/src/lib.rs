@@ -122,6 +122,7 @@ pub struct Editor {
     replacing: Option<String>,
     /// A toolbar prompt taking typed text, when one is open.
     prompt: Option<Prompt>,
+    file_command: Option<tabs::TabCommand>,
     /// A footnote being typed at the foot of the page, when one is open.
     /// Prompts and footnote sessions never overlap.
     footnote: Option<FootnoteEdit>,
@@ -183,6 +184,7 @@ impl Editor {
             last_find: None,
             replacing: None,
             prompt: None,
+            file_command: None,
             footnote: None,
             frame_width: 0,
             frame_height: 0,
@@ -231,6 +233,20 @@ impl Editor {
     pub fn pointer(&mut self, pressed: bool) {
         // A click goes where it lands; it never returns to a footnote anchor.
         self.abandon_footnote();
+        if self.sidebar.dragging && self.sidebar_pointer(pressed) {
+            return;
+        }
+        if self.cursor.1 < self.toolbar_height() as f32 {
+            if pressed
+                && let Some(action) = self.button_at(self.cursor.0, self.cursor.1, self.frame_width)
+            {
+                self.run_action(action);
+            }
+            if !pressed {
+                self.pressed_row = None;
+            }
+            return;
+        }
         if self.sidebar_pointer(pressed) {
             return;
         }
@@ -239,15 +255,7 @@ impl Editor {
         }
         if self.cursor.0 >= self.sidebar_width() as f32 {
             if pressed {
-                if (self.cursor.1 as i32) < self.toolbar_height() {
-                    if let Some(action) =
-                        self.button_at(self.cursor.0, self.cursor.1, self.frame_width)
-                    {
-                        self.run_action(action);
-                    }
-                } else {
-                    self.click_at(self.cursor.0, self.cursor.1, false);
-                }
+                self.click_at(self.cursor.0, self.cursor.1, false);
             }
             return;
         }
@@ -389,13 +397,14 @@ impl Editor {
         buffer: &mut pixelkit_raster::WindowBuffer,
         labels: &[String],
         active: usize,
+        top: i32,
     ) {
         self.ensure_fonts();
         let layout = tabs::TabStripLayout::new(buffer.width as i32, self.ui_scale, labels.len());
         let width = buffer.width as i32;
         let mut painter = pixelkit_raster::Painter::new(buffer);
         painter.fill_rect(
-            pixelkit_raster::Rect::new(0, 0, width, layout.height),
+            pixelkit_raster::Rect::new(0, top, width, layout.height),
             self.theme_now.chrome,
         );
         let Some(face) = self.faces.first() else {
@@ -403,52 +412,42 @@ impl Editor {
         };
         let atlas = &mut self.atlas;
         let ink = self.theme_now.chrome_ink;
-        let size = 13.0 * self.ui_scale;
-        let baseline = (23.0 * self.ui_scale) as i32;
+        let size = 11.0 * self.ui_scale;
+        let baseline = top + (14.0 * self.ui_scale) as i32;
         for (index, label) in labels.iter().enumerate() {
             let x = index as i32 * layout.tab_width;
             painter.fill_rect(
-                pixelkit_raster::Rect::new(x, 0, layout.tab_width.saturating_sub(1), layout.height),
+                pixelkit_raster::Rect::new(
+                    x,
+                    top,
+                    layout.tab_width.saturating_sub(1),
+                    layout.height,
+                ),
                 if index == active {
                     self.theme_now.selection
                 } else {
                     self.theme_now.chrome
                 },
             );
-            let limit = (layout.tab_width / (8.0 * self.ui_scale).max(1.0) as i32).max(0) as usize;
+            let limit = (layout.tab_width / (6.0 * self.ui_scale).max(1.0) as i32).max(0) as usize;
             let shown: String = label.chars().take(limit.saturating_sub(2)).collect();
+            painter.push_clip(pixelkit_raster::Rect::new(
+                x,
+                top,
+                layout.tab_width,
+                layout.height,
+            ));
             paint_tab_label(
                 atlas,
                 &mut painter,
                 face,
                 &shown,
-                x + (10.0 * self.ui_scale) as i32,
+                x + (5.0 * self.ui_scale) as i32,
                 baseline,
                 size,
                 ink,
             );
-        }
-        for (index, label) in ["New", "Open", "Book", "Save As"].iter().enumerate() {
-            let x = layout.commands_left + index as i32 * layout.command_width;
-            painter.fill_rect(
-                pixelkit_raster::Rect::new(
-                    x,
-                    0,
-                    layout.command_width.saturating_sub(1),
-                    layout.height,
-                ),
-                self.theme_now.chrome,
-            );
-            paint_tab_label(
-                atlas,
-                &mut painter,
-                face,
-                label,
-                x + (7.0 * self.ui_scale) as i32,
-                baseline,
-                size,
-                ink,
-            );
+            painter.pop_clip();
         }
     }
 
@@ -480,29 +479,21 @@ impl Editor {
             .map_or((432.0, 648.0), |geometry| {
                 (geometry.page_width, geometry.page_height)
             });
-        let aspect = trim_h / trim_w.max(1.0);
-        self.frame_width = width;
         let bar = self.toolbar_height();
         let per_row = if self.spread && !self.fullscreen {
             2
         } else {
             1
         };
-        let (gap, page_w, page_h) = if self.fullscreen {
-            // Full screen: the page runs edge to edge across the screen;
-            // pages scroll past with a thin rule between them.
-            let gap = (2.0 * self.ui_scale).round().max(1.0) as i32;
-            let page_w = width;
-            (gap, page_w, (page_w as f32 * aspect) as i32)
+        let status_h = if self.fullscreen {
+            (22.0 * self.ui_scale) as i32
         } else {
-            let gap = (8.0 * self.ui_scale).round() as i32;
-            let max_w = ((content_w - 2 * gap) / per_row).max(1);
-            // View zoom enlarges the paper and its text together. The book's
-            // point sizes, trim dimensions and export geometry stay intact.
-            let max_h = ((height - bar - 2 * gap).max(1) as f32 * 1.22) as i32;
-            let (page_w, page_h) = fit_page_size(trim_w, trim_h, max_w, max_h);
-            (gap, page_w, page_h)
+            0
         };
+        let gap = (3.0 * self.ui_scale).round().max(1.0) as i32;
+        let max_w = ((content_w - 2 * gap) / per_row).max(1);
+        let max_h = (height - bar - status_h - 2 * gap).max(1);
+        let (page_w, page_h) = fit_page_size(trim_w, trim_h, max_w, max_h);
         let visible_page_height = (height - bar - gap).max(1);
         let tail = ((page_h - visible_page_height).max(0) as f64
             / f64::from((page_h + gap).max(1)))
@@ -535,11 +526,6 @@ impl Editor {
         let mut painter = pixelkit_raster::Painter::new(buffer);
         // In full screen the status line owns the bottom strip: pages stop
         // above it instead of sliding underneath.
-        let status_h = if self.fullscreen {
-            (30.0 * self.ui_scale) as i32
-        } else {
-            0
-        };
         if status_h > 0 {
             painter.push_clip(pixelkit_raster::Rect::new(0, 0, width, height - status_h));
         }
@@ -1073,25 +1059,30 @@ impl Editor {
         let s = self.ui_scale;
         let width = self.sidebar_width();
         painter.fill_rect(
-            pixelkit_raster::Rect::new(0, 0, width, height),
+            pixelkit_raster::Rect::new(
+                0,
+                self.toolbar_height(),
+                width,
+                height - self.toolbar_height(),
+            ),
             self.theme_now.chrome,
         );
         for (index, row) in self.map.rows(&self.book).iter().enumerate() {
             let (_, y) = BookMap::row_center(index);
             let y = y * s;
             let (color, indent) = match row.kind {
-                MapKind::Chapter => (self.theme_now.chrome, 16.0),
-                MapKind::Section => (self.theme_now.chrome, 28.0),
+                MapKind::Chapter => (self.theme_now.chrome, 8.0),
+                MapKind::Section => (self.theme_now.chrome, 16.0),
                 MapKind::FrontMatter | MapKind::Part | MapKind::BackMatter => {
-                    (self.theme_now.rule, 8.0)
+                    (self.theme_now.rule, 4.0)
                 }
             };
             painter.fill_rect(
                 pixelkit_raster::Rect::new(
-                    (8.0 * s) as i32,
-                    (y - 12.0 * s) as i32,
-                    width - (16.0 * s) as i32,
-                    (24.0 * s) as i32,
+                    (4.0 * s) as i32,
+                    (y - 9.0 * s) as i32,
+                    width - (8.0 * s) as i32,
+                    (18.0 * s) as i32,
                 ),
                 color,
             );
@@ -1107,8 +1098,8 @@ impl Editor {
                     face,
                     &row.title,
                     (indent * s) as i32,
-                    (y + 5.0 * s) as i32,
-                    13.0 * s,
+                    (y + 4.0 * s) as i32,
+                    11.0 * s,
                 );
                 painter.pop_clip();
             }
@@ -1475,6 +1466,57 @@ fn fit_page_size(trim_w: f32, trim_h: f32, max_w: i32, max_h: i32) -> (i32, i32)
 #[cfg(test)]
 mod page_fit_tests {
     use super::fit_page_size;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn physical_pages_fit_below_controls_at_normal_and_high_dpi_sizes() {
+        let mut editor = super::Editor::new_document("Page visibility");
+        editor.paste_text(&"A complete page must be readable before Page Down. ".repeat(1200));
+        editor.refresh_layout();
+        let pages = editor.pager().pages();
+        let generation = editor.layout_generation();
+        for (width, height, scale) in [
+            (640, 480, 1.0),
+            (1100, 800, 1.0),
+            (2200, 1375, 2.0),
+            (2560, 1600, 2.0),
+        ] {
+            editor.set_ui_scale(scale);
+            for fullscreen in [false, true] {
+                editor.set_fullscreen(fullscreen);
+                let mut frame = pixelkit_raster::WindowBuffer::new(width, height);
+                for page in [1, pages / 2, pages] {
+                    editor.seek_page(page);
+                    editor.paint(&mut frame);
+                    let slot = editor.slots.iter().find(|slot| slot.page == page).unwrap();
+                    let bottom = height as i32 - if fullscreen { (22.0 * scale) as i32 } else { 0 };
+                    assert!(slot.top >= editor.toolbar_height());
+                    assert!(
+                        slot.top + slot.height <= bottom,
+                        "page {page} extends below {width}x{height}"
+                    );
+                    assert!(slot.left >= 0 && slot.left + slot.width <= width as i32);
+                    assert_eq!(
+                        editor.layout_generation(),
+                        generation,
+                        "resizing chrome must not re-typeset the book"
+                    );
+                    if !fullscreen {
+                        let counter = (70.0 * scale) as usize;
+                        let ink = (0..editor.toolbar_height() as usize - 2)
+                            .flat_map(|y| {
+                                &frame.pixels[y * width as usize + width as usize - counter
+                                    ..(y + 1) * width as usize]
+                            })
+                            .any(|&pixel| {
+                                pixel != editor.theme().chrome && pixel != editor.theme().rule
+                            });
+                        assert!(ink, "page counter visible at {width}px, scale {scale}");
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn page_and_spread_keep_trim_aspect_when_canvas_is_narrow() {

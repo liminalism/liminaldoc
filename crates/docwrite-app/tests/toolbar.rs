@@ -36,7 +36,7 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
         .iter()
         .map(|button| button.action)
         .collect();
-    assert_eq!(expected.len(), 16);
+    assert_eq!(expected.len(), 20);
     for (width, scale) in [(640, 1.0), (1100, 1.0), (1100, 1.5), (1280, 2.0)] {
         editor.set_ui_scale(scale);
         let buttons = editor.toolbar_buttons(width);
@@ -47,7 +47,11 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
                 .collect::<Vec<_>>(),
             expected
         );
-        assert!(buttons.last().unwrap().y > buttons[0].y);
+        assert!(buttons.iter().all(|button| button.y == buttons[0].y));
+        assert!(
+            buttons.last().unwrap().x + buttons.last().unwrap().w <= width - (70.0 * scale) as i32
+        );
+        assert!(buttons[0].h <= (20.0 * scale) as i32);
         for (i, button) in buttons.iter().enumerate() {
             assert!(button.x >= 0 && button.x + button.w <= width);
             for other in &buttons[i + 1..] {
@@ -64,7 +68,7 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
 }
 
 #[test]
-fn wrapped_chapter_and_note_controls_work_and_pages_stay_below_them() {
+fn compact_chapter_and_note_controls_work_and_pages_stay_below_them() {
     let mut editor = Editor::new();
     let mut buffer = pixelkit_raster::WindowBuffer::new(640, 800);
     editor.paint(&mut buffer);
@@ -80,7 +84,7 @@ fn wrapped_chapter_and_note_controls_work_and_pages_stay_below_them() {
     assert_eq!(editor.prompt().unwrap().text, "Narrow window chapter");
     editor.prompt_type(" renamed");
     editor.commit_prompt();
-    editor.type_text("Text beneath the wrapped toolbar.");
+    editor.type_text("Text beneath the compact toolbar.");
     editor.paint(&mut buffer);
     click_at_width(&mut editor, Action::Footnote, 640);
     editor.prompt_type("A visible note control.");
@@ -103,7 +107,7 @@ fn wrapped_chapter_and_note_controls_work_and_pages_stay_below_them() {
         editor
             .toolbar_buttons(2000)
             .iter()
-            .all(|button| button.y == 6)
+            .all(|button| button.y == 2)
     );
     click_at_width(&mut editor, Action::Contents, 2000);
     assert!(editor.book().has_contents());
@@ -113,7 +117,11 @@ fn wrapped_chapter_and_note_controls_work_and_pages_stay_below_them() {
 fn a_prompt_hides_toolbar_actions_and_fullscreen_has_no_buttons() {
     let mut editor = Editor::new();
     frame(&mut editor);
-    let bold = editor.toolbar_buttons(1400)[0].clone();
+    let bold = editor
+        .toolbar_buttons(1400)
+        .into_iter()
+        .find(|button| button.action == Action::Mark(Mark::Bold))
+        .unwrap();
     editor.open_prompt(PromptKind::NewChapter);
     editor.prompt_type("Keep this prompt");
     assert!(editor.toolbar_buttons(1400).is_empty());

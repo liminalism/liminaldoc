@@ -108,12 +108,13 @@ fn capture_quote_cite_and_follow_back() {
     );
 
     // The toolbar spans the source pane, but the pane must not consume its clicks.
+    editor.paint(&mut pixelkit_raster::WindowBuffer::new(900, 800));
     let contents = editor
-        .toolbar_buttons(1500)
+        .toolbar_buttons(900)
         .into_iter()
         .find(|button| button.action == Action::Contents)
         .unwrap();
-    assert!(contents.x > 1100, "the control is above the source pane");
+    assert!(contents.x > 600, "the control is above the source pane");
     editor.hover(
         (contents.x + contents.w / 2) as f32,
         (contents.y + contents.h / 2) as f32,

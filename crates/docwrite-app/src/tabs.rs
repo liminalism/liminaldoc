@@ -27,47 +27,28 @@ pub struct TabStripLayout {
     pub height: i32,
     /// Width of one document tab.
     pub tab_width: i32,
-    /// Left edge of the command buttons.
-    pub commands_left: i32,
-    /// Width of one command button.
-    pub command_width: i32,
     /// Number of document tabs.
     pub count: usize,
 }
 
 impl TabStripLayout {
-    /// Fit tabs and four file commands into a window.
+    /// Fit document selectors into one thin row; commands live in the toolbar.
     pub fn new(width: i32, scale: f32, count: usize) -> Self {
-        let height = (30.0 * scale).round().max(1.0) as i32;
-        let command_width = (72.0 * scale).round().max(1.0) as i32;
-        let commands_left = (width - 4 * command_width).max(0);
-        let tab_width = if count == 0 {
-            0
-        } else {
-            (commands_left / count as i32).min((180.0 * scale) as i32)
-        };
         Self {
-            height,
-            tab_width,
-            commands_left,
-            command_width,
+            height: (20.0 * scale).round().max(1.0) as i32,
+            tab_width: if count == 0 {
+                0
+            } else {
+                (width / count as i32).min((150.0 * scale) as i32)
+            },
             count,
         }
     }
 
-    /// Resolve a pointer press to its tab or file command.
+    /// Resolve a pointer press to its document tab.
     pub fn hit(&self, x: i32, y: i32) -> Option<TabCommand> {
         if y < 0 || y >= self.height || x < 0 {
             return None;
-        }
-        if x >= self.commands_left {
-            return match (x - self.commands_left) / self.command_width {
-                0 => Some(TabCommand::New),
-                1 => Some(TabCommand::Open),
-                2 => Some(TabCommand::OpenBook),
-                3 => Some(TabCommand::SaveAs),
-                _ => None,
-            };
         }
         if self.tab_width > 0 {
             let index = (x / self.tab_width) as usize;

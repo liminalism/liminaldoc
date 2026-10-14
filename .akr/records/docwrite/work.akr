@@ -430,24 +430,36 @@ record docwrite.work.writer-page-seek/1 : work {
 }
 
 record docwrite.work.writer-page-visibility/1 : work {
-    title "Keep page content and page count visible during long-book navigation"
-    state proposed
+    title "Compact persistent writer chrome and keep physical pages visible"
+    state completed
     intent """
-        Address the long-manuscript exercise's two navigation visibility issues.
-        Keep the existing physical Page Up/Down and page-seek semantics. Fit or
-        bound fullscreen page scaling so a reader does not need extra scrolling
-        to see text skipped between consecutive page-key views. Reserve room for
-        the current/total page counter at every normal toolbar width, including
-        row-wrap thresholds. Preserve the barebones appearance and cached layout;
-        do not introduce viewing modes. Reuse the retained 200-page native book
-        and live-window checks as acceptance evidence.
+        Continue the 200-page navigation visibility work using the user's saved
+        Screenshot 2026-10-14 12:56:54.png as the baseline. Compact all writer
+        chrome without autohide: one persistent file/edit command row immediately
+        below the native title bar, smaller buttons and spacing, a narrower and
+        denser chapter sidebar, and less surrounding padding. Show a slim separate
+        document-tab row only when multiple manuscripts exist, below the commands.
+        Reserve the page counter's space. Fit whole physical pages to the available
+        viewport, including fullscreen, preserving document styles and pagination.
+        Verify hit targets, multiple tabs, prompts, page visibility and the actual
+        200-page window at normal and high DPI sizes. Do not change manuscript
+        margins or font sizes merely to resize application chrome.
         """
     acceptance {
+        check compact-chrome {
+            statement """
+                File and editing buttons remain visible in one compact row below the title bar, with working hit targets; prompts and multiple document tabs retain correct pointer and IME coordinates, and chapter navigation still works.
+                """
+            method command
+            command "cargo test -p docwrite-app"
+            verified_by [ @docwrite.evidence.writer-compact-chrome/1 ]
+        }
         check visible-pages {
             statement """
-                At ordinary and high-DPI window sizes, physical page-key navigation does not hide intervening manuscript text below the viewport, and the current/total page count remains visible at toolbar wrap thresholds.
+                At ordinary and high-DPI window sizes, physical page-key navigation does not hide intervening manuscript text below the viewport, and the current/total page count remains visible.
                 """
             method manual
+            verified_by [ @docwrite.evidence.writer-compact-window/1 ]
         }
     }
     derived_from [ @docwrite.observation.writer-200-page-exercise/1 ]
