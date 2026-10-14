@@ -107,6 +107,22 @@ fn full_screen_is_edge_to_edge_wordperfect_with_a_status_line() {
 }
 
 #[test]
+fn full_screen_pages_stop_above_the_status_line() {
+    let mut editor = Editor::new();
+    let paragraph = "A paragraph long enough to wrap over a few lines of the page. ".repeat(4);
+    for _ in 0..40 {
+        editor.type_text(&format!("\n{paragraph}"));
+    }
+    editor.toggle_fullscreen();
+    let frame = painted(&mut editor);
+    let strip = &frame.pixels[(797 * 1100) as usize..];
+    assert!(
+        strip.iter().all(|pixel| *pixel == WORDPERFECT.desk),
+        "no page ink reaches the status strip"
+    );
+}
+
+#[test]
 fn spread_view_shows_facing_pages_and_pages_by_spread() {
     let mut editor = Editor::new();
     let paragraph = "A paragraph long enough to wrap over a few lines of the page. ".repeat(4);
@@ -161,4 +177,30 @@ fn spread_view_shows_facing_pages_and_pages_by_spread() {
     );
     editor.set_spread(false);
     assert!(!editor.is_spread());
+}
+
+#[test]
+fn font_families_cycle_and_reshape_the_book() {
+    let mut editor = Editor::new();
+    editor.type_text("A line set in every family.");
+    painted(&mut editor);
+    let first = editor.font_family_name().to_string();
+    assert!(!first.is_empty());
+    assert!(editor.pages_painted() >= 1);
+
+    let mut names = vec![first.clone()];
+    for _ in 0..10 {
+        editor.cycle_font_family();
+        painted(&mut editor);
+        assert!(
+            editor.pages_painted() >= 1,
+            "the {} book paints",
+            editor.font_family_name()
+        );
+        names.push(editor.font_family_name().to_string());
+    }
+    assert!(
+        names[1..].contains(&first),
+        "cycling returns to {first}: {names:?}"
+    );
 }

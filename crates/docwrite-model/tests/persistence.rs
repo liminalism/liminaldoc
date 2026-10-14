@@ -168,3 +168,24 @@ fn bibliography_index_and_csl_bibtex_round_trip() {
         used[0].rects
     );
 }
+
+#[test]
+fn direct_alignment_and_notes_reopen() {
+    use docwrite_model::{Align, NoteKind};
+
+    let mut book = Book::new("Essay");
+    book.insert("A centered line.\nA plain line.").unwrap();
+    let ids = book.block_ids();
+    book.set_align(ids[0], Some(Align::Center)).unwrap();
+    book.attach_note(NoteKind::Footnote, "A kept note.").unwrap();
+    let dir = env::temp_dir().join(format!("legebook-align-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    book.save_bundle(&dir).unwrap();
+    let opened = Book::load_bundle(&dir).unwrap();
+    let ids = opened.block_ids();
+    assert_eq!(opened.block(ids[0]).unwrap().align(), Some(Align::Center));
+    assert_eq!(opened.block(ids[1]).unwrap().align(), None);
+    let note = opened.block(ids[1]).unwrap().note().unwrap();
+    assert_eq!(opened.note(note).unwrap().text(), "A kept note.");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -215,6 +215,8 @@ pub struct NoteLine {
     pub text: String,
     /// Glyphs in visual order; clusters are byte offsets into `text`.
     pub glyphs: Arc<Vec<Glyph>>,
+    /// Index of the paragraph that carries the note's reference.
+    pub paragraph: usize,
 }
 
 /// A footnote line placed on a page.
@@ -224,6 +226,8 @@ pub struct FootnoteLine {
     pub text: String,
     /// Glyphs; clusters are byte offsets into `text`.
     pub glyphs: Vec<Glyph>,
+    /// Index of the paragraph that carries the note's reference.
+    pub paragraph: usize,
     /// Baseline, down from the top of the page.
     pub baseline: f32,
     /// Footnote em size.
@@ -1404,7 +1408,12 @@ impl Document {
             if drop.is_some() {
                 if line < drop_lines { hang } else { 0.0 }
             } else if line == 0 {
-                indent.max(-left)
+                // Centered and flush-right lines ignore the first-line
+                // indent: it would push them off-center.
+                match paragraph.style.align {
+                    Alignment::Center | Alignment::Right => 0.0,
+                    Alignment::Left | Alignment::Justify => indent.max(-left),
+                }
             } else {
                 0.0
             }
@@ -1623,12 +1632,14 @@ impl Document {
             lines.push(NoteLine {
                 text: own,
                 glyphs: Arc::new(glyphs),
+                paragraph: index,
             });
         }
         if lines.is_empty() {
             lines.push(NoteLine {
                 text: String::new(),
                 glyphs: Arc::new(Vec::new()),
+                paragraph: index,
             });
         }
         Ok(lines)
@@ -1651,6 +1662,7 @@ impl Document {
             .map(|(index, line)| FootnoteLine {
                 text: line.text.clone(),
                 glyphs: line.glyphs.as_ref().clone(),
+                paragraph: line.paragraph,
                 baseline: bottom - leading * (count - 1 - index) as f32 - em * 0.25,
                 em,
             })
@@ -2523,6 +2535,7 @@ mod page_decision_tests {
         let line = |text: &str| super::NoteLine {
             text: text.to_string(),
             glyphs: std::sync::Arc::new(Vec::new()),
+            paragraph: 0,
         };
         let pending = NoteFlow {
             carry: vec![line("N")],

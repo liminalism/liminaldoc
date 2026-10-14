@@ -6,7 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use docwrite_model::{
-    BlockKind, Book, Direction, ModelError, Motion, NoteKind, Position, RunMarks, Script, Selection,
+    Align, BlockKind, Book, Direction, ModelError, Motion, NoteKind, Position, RunMarks, Script,
+    Selection,
 };
 
 fn edited(text: &str) -> Book {
@@ -290,5 +291,47 @@ fn offset_past_the_end_is_refused() {
             ..
         }
     ));
+    assert!(book.check_consistency().is_ok());
+}
+
+#[test]
+fn direct_alignment_sets_clears_undoes_and_redoes() {
+    let mut book = edited("A centered line.");
+    let id = book.block_ids()[0];
+    assert_eq!(book.block(id).unwrap().align(), None);
+    book.set_align(id, Some(Align::Center)).unwrap();
+    assert_eq!(book.block(id).unwrap().align(), Some(Align::Center));
+    book.undo().unwrap();
+    assert_eq!(book.block(id).unwrap().align(), None);
+    book.redo().unwrap();
+    assert_eq!(book.block(id).unwrap().align(), Some(Align::Center));
+    book.set_align(id, None).unwrap();
+    assert_eq!(book.block(id).unwrap().align(), None);
+    assert!(book.check_consistency().is_ok());
+}
+
+#[test]
+fn note_text_edits_fold_into_one_undo_step() {
+    let mut book = edited("A line with a note.");
+    let note = book.attach_note(NoteKind::Footnote, "").unwrap();
+    for body in ["a", "ab", "abc"] {
+        book.set_note_text(note, body).unwrap();
+    }
+    assert_eq!(book.note(note).unwrap().text(), "abc");
+    book.undo().unwrap();
+    assert_eq!(
+        book.note(note).unwrap().text(),
+        "",
+        "one undo takes the whole typed note"
+    );
+    book.redo().unwrap();
+    assert_eq!(book.note(note).unwrap().text(), "abc");
+    // A different note starts its own step.
+    book.insert("\nSecond line.").unwrap();
+    let other = book.attach_note(NoteKind::Footnote, "x").unwrap();
+    book.set_note_text(other, "xy").unwrap();
+    book.undo().unwrap();
+    assert_eq!(book.note(other).unwrap().text(), "x");
+    assert_eq!(book.note(note).unwrap().text(), "abc");
     assert!(book.check_consistency().is_ok());
 }

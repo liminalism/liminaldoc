@@ -1,6 +1,9 @@
 //! Exact PageUp/PageDown and snap-at-gesture-end.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use docwrite_app::{Editor, Pager, Phase};
+use docwrite_model::{Position, Selection};
 
 #[test]
 fn page_down_and_page_up_land_on_page_tops_from_any_scroll() {
@@ -138,4 +141,47 @@ fn the_window_editor_types_into_the_book_and_turns_pages() {
         editor.pages_painted()
     );
     assert!(editor.caret_area().is_some(), "the caret is on the page");
+}
+
+#[test]
+fn paging_keeps_the_caret_line_so_round_trips_never_drift() {
+    let mut editor = Editor::new();
+    let paragraph = "A paragraph long enough to wrap over a few lines of the page. ".repeat(4);
+    for _ in 0..40 {
+        editor.type_text(&format!("\n{paragraph}"));
+    }
+    editor.refresh_layout();
+    let pages = editor.pager().pages();
+    assert!(pages >= 3, "forty paragraphs fill {pages} pages");
+
+    // The caret starts at the beginning of the second line of page one.
+    editor.jump_to_page(1);
+    let first = editor.book().block_ids()[0];
+    editor
+        .book_mut()
+        .set_selection(Selection::collapsed(Position::new(first, 0)))
+        .unwrap();
+    editor.move_line(true, false);
+    let home = editor.book().selection();
+    let home_page = editor.pager().page_top();
+
+    for _ in 0..pages - 1 {
+        editor.page_down();
+    }
+    assert!(editor.pager().page_top() > home_page);
+    for _ in 0..pages - 1 {
+        editor.page_up();
+    }
+    assert_eq!(editor.pager().page_top(), home_page);
+    assert_eq!(
+        editor.book().selection(),
+        home,
+        "three pages down and back lands on the same line"
+    );
+
+    // Shift extends the selection to the new caret instead of moving it.
+    editor.page(true, true);
+    let selection = editor.book().selection();
+    assert_eq!(selection.anchor, home.focus);
+    assert_ne!(selection.focus, home.focus);
 }

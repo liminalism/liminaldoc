@@ -282,6 +282,19 @@ record docwrite.evidence.incremental-matches-fresh/1 : evidence {
         """
 }
 
+record docwrite.evidence.latency-load-comparison/1 : evidence {
+    title "Release latency gate flaky under load avg 13-15: current tree passed 3/4 (max 4.7-8.1ms), pristine checkpoint baseline failed 3/3 (max 8.6-10.5ms); no regression attributable to the changes"
+    state verified
+    result inconclusive
+    method command
+    observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
+    command "cargo test --release -p docwrite-app --test latency_gate (current tree vs 254a4bb worktree)"
+    summary """
+        Release latency gate flaky under load avg 13-15: current tree passed 3/4 (max 4.7-8.1ms), pristine checkpoint baseline failed 3/3 (max 8.6-10.5ms); no regression attributable to the changes
+        """
+    author "dk"
+}
+
 record docwrite.evidence.liminaldoc-lazy-backends/1 : evidence {
     title "Cargo dependency trees show the liminaldoc launcher has no backend dependencies, the writer does not depend on liminaldoc-reader, and the reader does not depend on docwrite crates. The writer's PDF Open action spawns the sibling reader executable on demand."
     state verified
@@ -619,6 +632,18 @@ record docwrite.evidence.reader-markdown-render-review/2 : evidence {
     author "dk"
 }
 
+record docwrite.evidence.responsiveness-renders/1 : evidence {
+    title "Headless PNG renders reviewed: serif justified body, footnote session caret at ruled foot with folio, WP5.1 fullscreen with clear status line; fixed toolbar tofu and status overlap found in review"
+    state verified
+    result pass
+    method observation
+    observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
+    summary """
+        Headless PNG renders reviewed: serif justified body, footnote session caret at ruled foot with folio, WP5.1 fullscreen with clear status line; fixed toolbar tofu and status overlap found in review
+        """
+    author "dk"
+}
+
 record docwrite.evidence.selection-highlight/1 : evidence {
     title "Extending the caret paints selection pixels behind the glyphs. A collapsed caret paints none."
     state verified
@@ -672,4 +697,30 @@ record docwrite.evidence.window-features-2026-09-24/1 : evidence {
         Bibliography and Index sections. Views were also checked in offscreen PNG
         snapshots. Not covered: an interactive session in the window by a person.
         """
+}
+
+record docwrite.evidence.writer-responsiveness-suite/1 : evidence {
+    title "37/37 debug suites green on working tree (model, typeset, export, app incl. new footnote/alignment/paging/font/docx tests)"
+    state verified
+    result pass
+    method command
+    observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
+    command "cargo test -p docwrite-model -p docwrite-typeset -p docwrite-export -p docwrite-app -p liminaldoc"
+    summary """
+        37/37 debug suites green on working tree (model, typeset, export, app incl. new footnote/alignment/paging/font/docx tests)
+        """
+    author "dk"
+}
+
+record docwrite.evidence.writer-toolbar-wrap/1 : evidence {
+    title "On the working tree based on 254a4bbf, all 51 writer tests passed and the workspace all-targets check passed. Toolbar regressions exercised all 16 control bounds at widths 640–1280 and UI scales 1–2, chapter creation/rename and note insertion through wrapped pointer targets, resize back to one row, prompt/fullscreen hiding, and source-pane click routing. A 1100x800 snapshot was also inspected: two readable toolbar rows sit above the page. The M6 manual window-draft workflow was not performed."
+    state verified
+    result pass
+    method command
+    observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
+    command "cargo test -p docwrite-app; cargo check --workspace --all-targets"
+    summary """
+        On the working tree based on 254a4bbf, all 51 writer tests passed and the workspace all-targets check passed. Toolbar regressions exercised all 16 control bounds at widths 640–1280 and UI scales 1–2, chapter creation/rename and note insertion through wrapped pointer targets, resize back to one row, prompt/fullscreen hiding, and source-pane click routing. A 1100x800 snapshot was also inspected: two readable toolbar rows sit above the page. The M6 manual window-draft workflow was not performed.
+        """
+    author "dk"
 }

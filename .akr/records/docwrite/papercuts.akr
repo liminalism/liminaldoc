@@ -120,6 +120,17 @@ record docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 : pape
     created_at 2026-09-23
 }
 
+record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut {
+    title "Starting writer work, tried akr context KEY based on the CLI mapping;…"
+    state verified
+    statement """
+        Starting writer work, tried akr context KEY based on the CLI mapping; context requires --goal KEY, unlike akr start positional task. Retried with --goal.
+        """
+    observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
+    author "codex"
+    created_at 2026-10-14
+}
+
 record docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 : papercut {
     title "The repository-local rfd fork builds for Docwrite but emits 51 macOS…"
     state verified

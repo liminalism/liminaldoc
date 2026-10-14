@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use docwrite_app::{Action, Editor, PromptKind};
-use docwrite_model::{BlockKind, Mark, NoteKind, Position, Selection};
+use docwrite_model::{Align, BlockKind, Mark, NoteKind, Position, Selection};
 
 fn frame(editor: &mut Editor) {
     let mut buffer = pixelkit_raster::WindowBuffer::new(1400, 800);
@@ -11,8 +11,12 @@ fn frame(editor: &mut Editor) {
 }
 
 fn click(editor: &mut Editor, action: Action) {
+    click_at_width(editor, action, 1400);
+}
+
+fn click_at_width(editor: &mut Editor, action: Action, width: i32) {
     let button = editor
-        .toolbar_buttons(1400)
+        .toolbar_buttons(width)
         .into_iter()
         .find(|button| button.action == action)
         .unwrap_or_else(|| panic!("no {action:?} button"));
@@ -22,6 +26,105 @@ fn click(editor: &mut Editor, action: Action) {
     );
     editor.pointer(true);
     editor.pointer(false);
+}
+
+#[test]
+fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
+    let mut editor = Editor::new();
+    let expected: Vec<_> = editor
+        .toolbar_buttons(2000)
+        .iter()
+        .map(|button| button.action)
+        .collect();
+    assert_eq!(expected.len(), 16);
+    for (width, scale) in [(640, 1.0), (1100, 1.0), (1100, 1.5), (1280, 2.0)] {
+        editor.set_ui_scale(scale);
+        let buttons = editor.toolbar_buttons(width);
+        assert_eq!(
+            buttons
+                .iter()
+                .map(|button| button.action)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(buttons.last().unwrap().y > buttons[0].y);
+        for (i, button) in buttons.iter().enumerate() {
+            assert!(button.x >= 0 && button.x + button.w <= width);
+            for other in &buttons[i + 1..] {
+                assert!(
+                    button.x + button.w <= other.x
+                        || other.x + other.w <= button.x
+                        || button.y + button.h <= other.y
+                        || other.y + other.h <= button.y,
+                    "overlapping controls: {button:?}, {other:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn wrapped_chapter_and_note_controls_work_and_pages_stay_below_them() {
+    let mut editor = Editor::new();
+    let mut buffer = pixelkit_raster::WindowBuffer::new(640, 800);
+    editor.paint(&mut buffer);
+    click_at_width(&mut editor, Action::NewChapter, 640);
+    editor.prompt_type("Narrow window chapter");
+    editor.commit_prompt();
+    editor.paint(&mut buffer);
+    assert_eq!(
+        editor.book().parts()[0].chapters()[1].title(),
+        "Narrow window chapter"
+    );
+    click_at_width(&mut editor, Action::RenameChapter, 640);
+    assert_eq!(editor.prompt().unwrap().text, "Narrow window chapter");
+    editor.prompt_type(" renamed");
+    editor.commit_prompt();
+    editor.type_text("Text beneath the wrapped toolbar.");
+    editor.paint(&mut buffer);
+    click_at_width(&mut editor, Action::Footnote, 640);
+    editor.prompt_type("A visible note control.");
+    editor.commit_prompt();
+    editor.paint(&mut buffer);
+    let focus = editor.book().selection().focus.block;
+    let note = editor.book().block(focus).unwrap().note().unwrap();
+    assert_eq!(
+        editor.book().note(note).unwrap().text(),
+        "A visible note control."
+    );
+    let buttons = editor.toolbar_buttons(640);
+    let toolbar_bottom = buttons.last().unwrap().y + buttons.last().unwrap().h;
+    assert!(editor.caret_area().unwrap().y > f64::from(toolbar_bottom));
+
+    // Resizing back to a wide window restores one row and working hit targets.
+    let mut wide = pixelkit_raster::WindowBuffer::new(2000, 1000);
+    editor.paint(&mut wide);
+    assert!(
+        editor
+            .toolbar_buttons(2000)
+            .iter()
+            .all(|button| button.y == 6)
+    );
+    click_at_width(&mut editor, Action::Contents, 2000);
+    assert!(editor.book().has_contents());
+}
+
+#[test]
+fn a_prompt_hides_toolbar_actions_and_fullscreen_has_no_buttons() {
+    let mut editor = Editor::new();
+    frame(&mut editor);
+    let bold = editor.toolbar_buttons(1400)[0].clone();
+    editor.open_prompt(PromptKind::NewChapter);
+    editor.prompt_type("Keep this prompt");
+    assert!(editor.toolbar_buttons(1400).is_empty());
+    editor.hover((bold.x + bold.w / 2) as f32, (bold.y + bold.h / 2) as f32);
+    editor.pointer(true);
+    editor.pointer(false);
+    assert_eq!(editor.prompt().unwrap().text, "Keep this prompt");
+    assert!(!editor.book().selection_has(Mark::Bold));
+    editor.cancel_prompt();
+    editor.set_fullscreen(true);
+    assert!(editor.toolbar_buttons(1400).is_empty());
 }
 
 #[test]
@@ -207,4 +310,43 @@ fn prompts_index_terms_and_build_the_bibliography() {
     assert!(headings.iter().any(|h| h == "Bibliography"), "{headings:?}");
     assert!(headings.iter().any(|h| h == "Index"), "{headings:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_alignment_button_cycles_and_direct_keys_set_each_side() {
+    let mut editor = Editor::new();
+    frame(&mut editor);
+    let first = editor.book().block_ids()[0];
+    assert_eq!(editor.current_alignment(), None);
+    assert_eq!(editor.current_alignment_label(), "Style");
+
+    for (label, align) in [
+        ("Left", Align::Left),
+        ("Center", Align::Center),
+        ("Right", Align::Right),
+        ("Justify", Align::Justify),
+    ] {
+        click(&mut editor, Action::CycleAlign);
+        assert_eq!(editor.current_alignment_label(), label);
+        assert_eq!(editor.book().block(first).unwrap().align(), Some(align));
+    }
+    click(&mut editor, Action::CycleAlign);
+    assert_eq!(editor.current_alignment(), None, "back to the style");
+
+    editor.set_alignment(Align::Center);
+    assert_eq!(
+        editor.book().block(first).unwrap().align(),
+        Some(Align::Center)
+    );
+    frame(&mut editor);
+    let document = editor.document().unwrap();
+    let paragraph = document.paragraph_of(first.raw()).unwrap();
+    let centered = (1..=document.page_count())
+        .flat_map(|page| document.page_painted_lines(page))
+        .any(|line| line.paragraph == paragraph && line.indent > 10.0);
+    assert!(centered, "the override centers the laid-out line");
+    editor.undo();
+    assert_eq!(editor.book().block(first).unwrap().align(), None);
+    editor.clear_alignment();
+    assert_eq!(editor.current_alignment(), None);
 }

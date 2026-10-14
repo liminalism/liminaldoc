@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:8fab86476e9f5814aa39dbdeca6e44ce05e3dc4611d9f51aa22265a5a276d8ae"
+    source_graph "sha256:486787bf1bfbefc3cfdc0a37ab1ab9e0d48580aaec5151a6776fabc5abd99ece"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:23c1864ff0a6ca569ebf105b894c11216a60a848258c79bbbff71e7e189b9f5d"
-    records 53
+    hash "sha256:e14c32a08bc05a1741f263dd0168c504cd110145c03721147fdc4dec81b4a06e"
+    records 57
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:c4a426b08a1db3897c79ab199a05f039844f235c5ce7e29ab58309b5784074db"
-    records 19
+    hash "sha256:3077f6fd42aee10d1e0d46c9a3d6fc0c9d58e707806243a8aa1e70dca7d809cc"
+    records 20
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:ca0c13a42f51f66895467ce050b0a06a512fdd4d4a204342c6a28024ebb8bf53"
-    records 24
+    hash "sha256:fb5f33ca4e57b0c931f85531f76a2c508ba53b73036dbc9058ae3ebcfe6457b6"
+    records 26
 }
 
 source ".akr/records/lege/work.akr" {
@@ -526,6 +526,12 @@ resolution @docwrite.work.m7-pdf-links/1 {
     hash "sha256:86f4b48af279b33d1d47ea24d839c64b421a7cc2211bed1ca86a16e3a7802f27"
 }
 
+resolution @docwrite.work.writer-toolbar-wrap/1 {
+    slot part_of
+    to @docwrite.milestone.m6-writer-ready/1
+    hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
+}
+
 resolution @lege.work.font-subsetting-and-cff/1 {
     slot implements
     to @docwrite.decision.export-formats/1
@@ -702,6 +708,11 @@ seal @docwrite.evidence.incremental-matches-fresh/1 {
     hash "sha256:348807ba228cd0324d8844eac0db04b8260e3c8108f46e0e46b8da3827fe8b72"
 }
 
+seal @docwrite.evidence.latency-load-comparison/1 {
+    state verified
+    hash "sha256:421cbfed3a9fa3203677a2344580f44f6f87b351d7611fc6547070992ff39197"
+}
+
 seal @docwrite.evidence.liminaldoc-lazy-backends/1 {
     state verified
     hash "sha256:0b7239ef84870e7ceb2ffdb0d231e66482a3044712cae4d9dc53c813625ffe69"
@@ -837,6 +848,11 @@ seal @docwrite.evidence.reader-markdown-render-review/2 {
     hash "sha256:a60e79d52308ba41eda53b4ae4c06046704c5a7f3d2a1b189ac1684455e9f693"
 }
 
+seal @docwrite.evidence.responsiveness-renders/1 {
+    state verified
+    hash "sha256:8f53da0b05513aaf900d396c2cd5a83369a97b921bd87de41bf42e5739e9d046"
+}
+
 seal @docwrite.evidence.selection-highlight/1 {
     state verified
     hash "sha256:b3fcb5c93967bc41237825c6719e4495979006f0c14a93dd7f1b5eee11aad806"
@@ -855,6 +871,16 @@ seal @docwrite.evidence.typing-trace/1 {
 seal @docwrite.evidence.window-features-2026-09-24/1 {
     state verified
     hash "sha256:30ba32c1105a18e1372561a6f7daf26162c3ebe0285a5c133239f79b209568ce"
+}
+
+seal @docwrite.evidence.writer-responsiveness-suite/1 {
+    state verified
+    hash "sha256:3ba2be7890807d1bb8f89f0c40d2fed99d645a37ee4910ad36547b0b3aa51644"
+}
+
+seal @docwrite.evidence.writer-toolbar-wrap/1 {
+    state verified
+    hash "sha256:65e37297c1768ad026cafa8ab8d2cc573b189fe008a660be8c8c87837fe8409e"
 }
 
 seal @docwrite.milestone.m1-editor-spike/1 {
@@ -1112,6 +1138,11 @@ seal @docwrite.papercut.knowledge-start-via-the-mcp-server-attached-at/1 {
     hash "sha256:981f75464664c00a3d8784860cb5774effc2f065e595e86ec645a3ef603595f7"
 }
 
+seal @docwrite.papercut.starting-writer-work-tried-akr-context-key/1 {
+    state verified
+    hash "sha256:7d7255500e3e68fc22a2ee22dc22a311a32f4fd8eb51841fb247dfe428bf05fa"
+}
+
 seal @docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 {
     state verified
     hash "sha256:a73208dfd0da3ea9b8f8feb2d7fc4ac062e327f32575dd6a74456f0ea1438e92"
@@ -1235,6 +1266,11 @@ seal @docwrite.work.m6-measured-footnotes/1 {
 seal @docwrite.work.m6-window-chapter-commands/1 {
     state completed
     hash "sha256:b513b70310688584eb0d2214da8da4529d6ab076776006e652b38ff51dc19551"
+}
+
+seal @docwrite.work.writer-toolbar-wrap/1 {
+    state completed
+    hash "sha256:a2441dc272c3c20e02cf0538128771eb311408035d21a2dd294bb8035d59e716"
 }
 
 seal @lege.work.multi-font-pages-and-tounicode/1 {

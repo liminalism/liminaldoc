@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use docwrite_model::{BlockKind, Book, Mark, Position, Selection};
+use docwrite_model::{Align, BlockKind, Book, Mark, Position, Selection};
 use docwrite_typeset::{Face, FaceStyle, PaintedLine, from_book_with};
 
 fn face() -> Face {
@@ -171,4 +171,27 @@ fn small_caps_are_synthesized_when_the_font_has_none() {
             "clusters point into the text"
         );
     }
+}
+
+#[test]
+fn direct_alignment_overrides_the_style() {
+    let mut book = Book::new("Align");
+    book.insert("Opening words.\nA short centered line.\nClosing words.").unwrap();
+    let second = book.block_ids()[1];
+    book.set_align(second, Some(Align::Center)).unwrap();
+    let lines = lines_of(&book, "A short centered");
+    assert_eq!(lines.len(), 1);
+    let measure = 432.0 - 54.0 - 36.0;
+    let left_gap = lines[0].indent;
+    let right_gap = measure - lines[0].indent - width(&lines[0]);
+    assert!(
+        (left_gap - right_gap).abs() < 1.0,
+        "centered: {left_gap} vs {right_gap}"
+    );
+    // Untouched paragraphs keep their styles: the opener does not indent
+    // its first line, and Body still justifies with a first indent.
+    let opener = lines_of(&book, "Opening words");
+    assert_eq!(opener[0].indent, 0.0, "first paragraphs do not indent");
+    let body = lines_of(&book, "Closing words");
+    assert_eq!(body[0].indent, 12.0, "Body keeps its first indent");
 }

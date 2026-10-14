@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use crate::error::ModelError;
 use crate::ids::{BlockId, NoteId};
 use crate::nav;
+use crate::publish::Align;
 use crate::runs::{self, Run, RunMarks, Script};
 use crate::tree::{Block, BlockKind, BlockLoc, Book, Note, NoteKind, Position, Selection};
 
@@ -159,6 +160,16 @@ enum Change {
     },
     CreateNote {
         note: Note,
+    },
+    SetAlign {
+        block: BlockId,
+        old: Option<Align>,
+        new: Option<Align>,
+    },
+    SetNoteText {
+        id: NoteId,
+        old: String,
+        new: String,
     },
 }
 
@@ -550,6 +561,78 @@ impl Book {
         self.transact(|book, changes| book.set_kind_change(block, kind, changes))
     }
 
+    /// Set a block's direct alignment (`None` follows its paragraph style).
+    /// Recorded as its own undo step.
+    pub fn set_align(&mut self, block: BlockId, align: Option<Align>) -> Result<(), ModelError> {
+        let _ = self.block_ref(block)?;
+        self.transact(|book, changes| book.set_align_change(block, align, changes))
+    }
+
+    /// Replace a note's body. Consecutive calls for the same note fold into
+    /// one undo step, so typing a footnote is undone as one step.
+    pub fn set_note_text(&mut self, id: NoteId, text: &str) -> Result<(), ModelError> {
+        let old = self.note(id)?.text();
+        if old == text {
+            return Ok(());
+        }
+        let depth = self.undo.len();
+        self.transact(|book, changes| {
+            let change = Change::SetNoteText {
+                id,
+                old,
+                new: text.to_string(),
+            };
+            book.apply(&change, false)?;
+            changes.push(change);
+            Ok(())
+        })?;
+        self.fold_note_text(id, depth, text);
+        Ok(())
+    }
+
+    /// Fold the step just pushed into the previous one when both only touch
+    /// `id`'s body. `depth` is the undo depth before this call's transaction.
+    fn fold_note_text(&mut self, id: NoteId, depth: usize, text: &str) {
+        if self.undo.len() != depth + 1 || depth == 0 {
+            return;
+        }
+        let same_note = matches!(
+            self.undo.get(depth - 1),
+            Some(previous)
+                if matches!(&previous.changes[..], [Change::SetNoteText { id: other, .. }] if *other == id)
+        ) && matches!(
+            self.undo.get(depth),
+            Some(current)
+                if matches!(&current.changes[..], [Change::SetNoteText { .. }])
+        );
+        if !same_note {
+            return;
+        }
+        match (self.undo.pop(), self.undo.pop()) {
+            (Some(mut current), Some(previous)) => {
+                let old = match &previous.changes[..] {
+                    [Change::SetNoteText { old, .. }] => old.clone(),
+                    _ => String::new(),
+                };
+                current.changes = vec![Change::SetNoteText {
+                    id,
+                    old,
+                    new: text.to_string(),
+                }];
+                current.selection_before = previous.selection_before;
+                self.undo.push(current);
+            }
+            (current, previous) => {
+                if let Some(previous) = previous {
+                    self.undo.push(previous);
+                }
+                if let Some(current) = current {
+                    self.undo.push(current);
+                }
+            }
+        }
+    }
+
     fn insert_text(&mut self, text: &str, marks: Option<RunMarks>) -> Result<(), ModelError> {
         self.transact(|book, changes| {
             if !book.selection.is_collapsed() {
@@ -922,6 +1005,26 @@ impl Book {
         Ok(())
     }
 
+    fn set_align_change(
+        &mut self,
+        block: BlockId,
+        align: Option<Align>,
+        changes: &mut Vec<Change>,
+    ) -> Result<(), ModelError> {
+        let old = self.block_ref(block)?.align();
+        if old == align {
+            return Ok(());
+        }
+        let change = Change::SetAlign {
+            block,
+            old,
+            new: align,
+        };
+        self.apply(&change, false)?;
+        changes.push(change);
+        Ok(())
+    }
+
     fn set_note_change(
         &mut self,
         block: BlockId,
@@ -1030,6 +1133,32 @@ impl Book {
                     }
                     self.notes_mut().insert(id, note.clone());
                 }
+                Ok(())
+            }
+            Change::SetAlign { block, old, new } => {
+                let expected = if backward { new } else { old };
+                let assign = if backward { *old } else { *new };
+                let current = self.block_ref(*block)?.align();
+                if &current != expected {
+                    return Err(ModelError::EditConflict);
+                }
+                self.block_mut(*block)?.set_align(assign);
+                Ok(())
+            }
+            Change::SetNoteText { id, old, new } => {
+                let (expected, assign) = if backward {
+                    (new.as_str(), old.as_str())
+                } else {
+                    (old.as_str(), new.as_str())
+                };
+                let current = self.note(*id)?.text();
+                if current != expected {
+                    return Err(ModelError::EditConflict);
+                }
+                self.notes_mut()
+                    .get_mut(id)
+                    .ok_or(ModelError::UnknownNote(*id))?
+                    .set_text(assign);
                 Ok(())
             }
         }

@@ -3,7 +3,7 @@
 
 use docwrite_typeset::Face;
 
-use crate::{Editor, SIDEBAR_W};
+use crate::{Editor, SIDEBAR_W, family_defs, load_family_def};
 
 /// Colors one view paints with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,6 +165,40 @@ impl Editor {
             WORDPERFECT
         } else {
             self.view_theme
+        }
+    }
+
+    /// The family the book is set in, as named by discovery.
+    pub fn font_family_name(&self) -> &str {
+        &self.family_name
+    }
+
+    /// Set the book in the next loadable family (serif first). The whole
+    /// book is shaped again in the new faces on the next paint.
+    pub fn cycle_font_family(&mut self) {
+        self.ensure_fonts();
+        let defs = family_defs();
+        let count = defs.len();
+        if count == 0 {
+            return;
+        }
+        for step in 1..=count {
+            let index = (self.family_index + step) % count;
+            let loaded = defs
+                .get(index)
+                .and_then(|def| load_family_def(def).map(|loaded| (def.name, loaded)));
+            if let Some((name, loaded)) = loaded {
+                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) =
+                    loaded.into_iter().unzip();
+                self.faces = faces;
+                self.font_files = font_files;
+                self.family_index = index;
+                self.family_name = name.to_string();
+                self.document = None;
+                self.layout_stale = true;
+                self.follow_caret = true;
+                return;
+            }
         }
     }
 

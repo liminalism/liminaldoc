@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use docwrite_app::{Editor, PromptKind};
+use docwrite_app::{Action, Editor, PromptKind};
 use docwrite_model::{Book, Direction, Motion};
 
 /// A source PDF: an exported book whose text the pane can read.
@@ -14,7 +14,7 @@ fn source_pdf() -> std::path::PathBuf {
     let mut book = Book::new("Letters");
     book.insert("The clerk wrote every date twice, once in ink and once in pencil.")
         .unwrap();
-    let editor = Editor::with_book(book);
+    let mut editor = Editor::with_book(book);
     let path = dir.join("Letters.pdf");
     editor.export_pdf_to(&path).unwrap();
     path
@@ -106,4 +106,20 @@ fn capture_quote_cite_and_follow_back() {
         docwrite_app::PAPER.desk,
         "the pane covers the right side"
     );
+
+    // The toolbar spans the source pane, but the pane must not consume its clicks.
+    let contents = editor
+        .toolbar_buttons(1500)
+        .into_iter()
+        .find(|button| button.action == Action::Contents)
+        .unwrap();
+    assert!(contents.x > 1100, "the control is above the source pane");
+    editor.hover(
+        (contents.x + contents.w / 2) as f32,
+        (contents.y + contents.h / 2) as f32,
+    );
+    editor.pointer(true);
+    editor.pointer(false);
+    assert!(editor.book().has_contents());
+    assert_eq!(editor.source_highlight(), source.rects.as_slice());
 }

@@ -25,7 +25,7 @@ pub use trace::{FrameMetrics, InputTrace, ReplayStep, TraceCommand};
 use view::Sidebar;
 pub use view::{NIGHT, PAPER, PointerShape, SANZO_EARTH, SANZO_SEA, Theme, WARM, WORDPERFECT};
 
-use docwrite_model::{Book, Direction, Motion};
+use docwrite_model::{Book, Direction, Motion, NoteId, Selection};
 use docwrite_typeset::{
     Document, EditReport, Face, GlyphAtlas, NOTE_MARK_CLUSTER, from_book_with, update_from_book,
 };
@@ -35,6 +35,20 @@ const DESK: u32 = PAPER.desk;
 const PAGE_COLOR: u32 = PAPER.page;
 /// Selection highlight painted behind selected glyphs in the paged view.
 pub const SELECTION: u32 = PAPER.selection;
+
+/// A footnote being typed at the foot of its page. The hotkey opens one,
+/// typing goes to the note's body, and Enter returns to `anchor`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FootnoteEdit {
+    /// The note being typed.
+    pub note: NoteId,
+    /// The block the note hangs from.
+    pub block: docwrite_model::BlockId,
+    /// Where the caret was when the session opened; Enter restores it.
+    pub anchor: Selection,
+    /// Caret position in the note's body, in characters.
+    pub cursor: usize,
+}
 
 /// Caret rectangle in window pixels, for the IME candidate window.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,7 +68,11 @@ pub struct Editor {
     book: Book,
     pager: Pager,
     /// The font family, regular first; empty when no font could be loaded.
+    /// Loaded lazily on the first layout so opening a tab never waits on fonts.
     faces: Vec<Face>,
+    /// Which discovered family `faces` holds, and its display name.
+    family_index: usize,
+    family_name: String,
     /// The laid-out book. Edits mark it stale; the next paint brings it up
     /// to date incrementally rather than laying the book out again.
     document: Option<Document>,
@@ -99,6 +117,9 @@ pub struct Editor {
     replacing: Option<String>,
     /// A toolbar prompt taking typed text, when one is open.
     prompt: Option<Prompt>,
+    /// A footnote being typed at the foot of the page, when one is open.
+    /// Prompts and footnote sessions never overlap.
+    footnote: Option<FootnoteEdit>,
     /// Size of the last painted frame, for toolbar and pane hits.
     frame_width: i32,
     frame_height: i32,
@@ -118,14 +139,15 @@ impl Editor {
         Self::with_book(book)
     }
 
-    /// Open `book` in the editor. Layout happens on the first paint.
+    /// Open `book` in the editor. Fonts load and layout happens on the
+    /// first paint, so opening never waits on either.
     pub fn with_book(book: Book) -> Self {
-        let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) =
-            load_family().unwrap_or_default().into_iter().unzip();
         Self {
             book,
             pager: Pager::new(1, false),
-            faces,
+            faces: Vec::new(),
+            family_index: 0,
+            family_name: "Default".into(),
             document: None,
             layout_stale: true,
             follow_caret: false,
@@ -141,7 +163,7 @@ impl Editor {
             last_edit: None,
             saving: Arc::new(AtomicBool::new(false)),
             save_error: Arc::new(Mutex::new(None)),
-            font_files,
+            font_files: Vec::new(),
             slots: Vec::new(),
             ui_scale: 1.0,
             sidebar: Sidebar::default(),
@@ -154,6 +176,7 @@ impl Editor {
             last_find: None,
             replacing: None,
             prompt: None,
+            footnote: None,
             frame_width: 0,
             frame_height: 0,
             research: None,
@@ -199,6 +222,8 @@ impl Editor {
     /// Press or release the pointer. A drag from one chapter row to another
     /// reorders the book. A click collapses the part or chapter under the pointer.
     pub fn pointer(&mut self, pressed: bool) {
+        // A click goes where it lands; it never returns to a footnote anchor.
+        self.abandon_footnote();
         if self.sidebar_pointer(pressed) {
             return;
         }
@@ -355,6 +380,7 @@ impl Editor {
         labels: &[String],
         active: usize,
     ) {
+        self.ensure_fonts();
         let layout = tabs::TabStripLayout::new(buffer.width as i32, self.ui_scale, labels.len());
         let width = buffer.width as i32;
         let mut painter = pixelkit_raster::Painter::new(buffer);
@@ -475,8 +501,20 @@ impl Editor {
         // In spread view a row holds a verso and a recto: pages 2|3, 4|5, ...,
         // with page 1 alone on the right, as in a bound book.
         let scroll = self.pager.scroll() / f64::from(per_row);
-        let origin = bar + gap - (scroll.fract() * f64::from(page_h + gap)) as i32;
+        let mut origin = bar + gap - (scroll.fract() * f64::from(page_h + gap)) as i32;
         let first = scroll.floor() as i32;
+        if self.footnote.is_some()
+            && self.footnote_page().is_some_and(|page| {
+                let row = if per_row == 2 { page / 2 } else { page - 1 };
+                row as i32 == first
+            })
+        {
+            // The zoomed page is taller than the view: lift the stack so
+            // the footnote at its foot (and the session caret) shows. The
+            // pager stays page-aligned; ending the session drops the view
+            // back exactly where the hotkey found it.
+            origin -= (origin + page_h - height).max(0);
+        }
         let document = self.document.take();
         self.pages_painted = document.as_ref().map(|laid| laid.page_count()).unwrap_or(0);
         let last_page = if document.is_some() {
@@ -485,6 +523,16 @@ impl Editor {
             1
         };
         let mut painter = pixelkit_raster::Painter::new(buffer);
+        // In full screen the status line owns the bottom strip: pages stop
+        // above it instead of sliding underneath.
+        let status_h = if self.fullscreen {
+            (30.0 * self.ui_scale) as i32
+        } else {
+            0
+        };
+        if status_h > 0 {
+            painter.push_clip(pixelkit_raster::Rect::new(0, 0, width, height - status_h));
+        }
         for slot in -1..4 {
             let row = first + slot;
             if row < 0 {
@@ -532,6 +580,9 @@ impl Editor {
                 );
             }
         }
+        if status_h > 0 {
+            painter.pop_clip();
+        }
         let face = document.as_ref().map(|document| document.face());
         if self.fullscreen {
             if let Some(face) = face {
@@ -552,10 +603,35 @@ impl Editor {
         self.document = document;
     }
 
+    /// Load the current family when no faces are held yet. Layout and
+    /// export both go through here, so opening never waits on fonts.
+    pub(crate) fn ensure_fonts(&mut self) {
+        if !self.faces.is_empty() {
+            return;
+        }
+        let defs = family_defs();
+        let count = defs.len();
+        for step in 0..count {
+            let index = (self.family_index + step) % count.max(1);
+            if let Some(def) = defs.get(index)
+                && let Some(loaded) = load_family_def(def)
+            {
+                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) =
+                    loaded.into_iter().unzip();
+                self.faces = faces;
+                self.font_files = font_files;
+                self.family_index = index;
+                self.family_name = def.name.to_string();
+                return;
+            }
+        }
+    }
+
     /// Bring the layout up to date with the book. A no-op when nothing
     /// changed since the last call. Only the edited paragraphs are shaped
     /// again, and pagination stops where the old page breaks line up.
     pub fn refresh_layout(&mut self) {
+        self.ensure_fonts();
         if !self.layout_stale && self.document.is_some() {
             self.follow_caret_now();
             return;
@@ -788,7 +864,7 @@ impl Editor {
                 pen += advance;
             }
         }
-        if saw_focus {
+        if saw_focus && self.footnote.is_none() {
             let height = (geometry.font_size * scale).max(1.0) as i32;
             if !self.preedit.is_empty() {
                 // The composition is drawn at the caret, underlined, and does
@@ -843,7 +919,8 @@ impl Editor {
                 self.theme_now.ink,
             );
         }
-        for note in document.page_footnote_lines(page) {
+        let footnote_lines = document.page_footnote_lines(page);
+        for note in &footnote_lines {
             let mut pen = left as f32 + inset * scale;
             let baseline = top + (note.baseline * scale) as i32;
             for glyph in &note.glyphs {
@@ -859,6 +936,59 @@ impl Editor {
                 );
                 pen += glyph.x_advance * scale;
             }
+        }
+        // The open footnote's caret, at the session's offset in the note.
+        if let Some((caret_page, line_index, byte)) = self.footnote_caret_in(document)
+            && caret_page == page
+            && let Some(note) = footnote_lines.get(line_index)
+        {
+            let baseline = top + (note.baseline * scale) as i32;
+            let before: f32 = note
+                .glyphs
+                .iter()
+                .filter(|glyph| (glyph.cluster as usize) < byte)
+                .map(|glyph| glyph.x_advance * scale)
+                .sum();
+            let mut caret_x = (left as f32 + inset * scale + before).round() as i32;
+            let height = (note.em * scale).max(1.0) as i32;
+            let caret_y = baseline - height;
+            if !self.preedit.is_empty() {
+                let preedit = self.preedit.clone();
+                let size = note.em * scale;
+                let start = caret_x;
+                if let Ok(glyphs) = face.shape(&preedit, size.max(1.0), &[]) {
+                    for glyph in glyphs {
+                        draw_glyph(
+                            &mut self.atlas,
+                            painter,
+                            face,
+                            glyph.id,
+                            size.max(1.0),
+                            caret_x as f32,
+                            baseline,
+                            self.theme_now.ink,
+                        );
+                        caret_x += glyph.x_advance.round() as i32;
+                    }
+                }
+                painter.fill_rect(
+                    pixelkit_raster::Rect::new(start, baseline + 2, (caret_x - start).max(1), 1),
+                    self.theme_now.ink,
+                );
+            }
+            painter.fill_rect(
+                pixelkit_raster::Rect::new(caret_x, caret_y, 2, height),
+                self.theme_now.ink,
+            );
+            self.caret = Some(CaretRect {
+                x: caret_x as f64,
+                y: caret_y as f64,
+                width: 2.0,
+                height: height as f64,
+            });
+            let inches = |pixels: i32| pixels as f32 / scale / 72.0;
+            self.caret_status =
+                Some((page, inches(caret_y + height - top), inches(caret_x - left)));
         }
         painter.pop_clip();
     }
@@ -998,14 +1128,14 @@ impl Editor {
         }
     }
 
-    /// Show the next page (or spread).
+    /// Show the next page (or spread), keeping the caret's line offset.
     pub fn page_down(&mut self) {
-        self.pager.page_down();
+        self.page(true, false);
     }
 
-    /// Show the previous page (or spread).
+    /// Show the previous page (or spread), keeping the caret's line offset.
     pub fn page_up(&mut self) {
-        self.pager.page_up();
+        self.page(false, false);
     }
 
     /// Scroll by `delta` pages in a gesture; the view settles on a page when it ends.
@@ -1087,62 +1217,147 @@ fn paint_tab_label(
 /// Keypress-to-present budget. A few milliseconds, inside one 60 Hz frame.
 pub const KEYPRESS_BUDGET: Duration = Duration::from_millis(8);
 
-/// The font family the editor sets books in: regular, bold, italic, bold
-/// italic, as faces and their files. `LEGE_DOCWRITE_FONT` (with optional
-/// `_BOLD`, `_ITALIC`, `_BOLD_ITALIC`) overrides; otherwise the first family
-/// found of Georgia, Times New Roman and Noto Sans. A style a family lacks
-/// is its regular face again.
-fn load_family() -> Option<Vec<(Face, Vec<u8>)>> {
-    let supplemental = std::path::Path::new("/System/Library/Fonts/Supplemental");
-    let noto = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
-    let mut families: Vec<[Option<std::path::PathBuf>; 4]> = Vec::new();
-    if let Some(regular) = std::env::var_os("LEGE_DOCWRITE_FONT") {
-        let variant = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);
-        families.push([
-            Some(regular.into()),
-            variant("LEGE_DOCWRITE_FONT_BOLD"),
-            variant("LEGE_DOCWRITE_FONT_ITALIC"),
-            variant("LEGE_DOCWRITE_FONT_BOLD_ITALIC"),
-        ]);
-    }
-    for name in ["Georgia", "Times New Roman"] {
-        families.push([
-            Some(supplemental.join(format!("{name}.ttf"))),
-            Some(supplemental.join(format!("{name} Bold.ttf"))),
-            Some(supplemental.join(format!("{name} Italic.ttf"))),
-            Some(supplemental.join(format!("{name} Bold Italic.ttf"))),
-        ]);
-    }
-    families.push([Some(noto), None, None, None]);
-    for family in families {
-        let read = |path: &Option<std::path::PathBuf>| -> Option<(Face, Vec<u8>)> {
-            let bytes = std::fs::read(path.as_ref()?).ok()?;
-            Face::parse(bytes.clone()).ok().map(|face| (face, bytes))
-        };
-        let Some(regular) = read(&family[0]) else {
-            continue;
-        };
-        let mut faces = Vec::with_capacity(4);
-        for style in &family[1..] {
-            let face = read(style).or_else(|| {
-                regular
-                    .0
-                    .duplicate()
-                    .ok()
-                    .map(|face| (face, regular.1.clone()))
-            });
-            if let Some(face) = face {
-                faces.push(face);
-            }
-        }
-        faces.insert(0, regular);
-        return Some(faces);
-    }
-    None
+/// One discoverable font family: candidate files per style, in order.
+/// No file is touched until the family loads.
+pub(crate) struct FamilyDef {
+    name: &'static str,
+    files: [Vec<std::path::PathBuf>; 4],
 }
 
-fn byte_at(text: &str, chars: usize) -> usize {
+/// Families the editor can set books in, serif first: `LEGE_DOCWRITE_FONT`
+/// (with optional `_BOLD`, `_ITALIC`, `_BOLD_ITALIC`) overrides everything,
+/// then Georgia, Times New Roman, Noto Serif, FreeSerif, Noto Sans and Lato
+/// from their usual system and user directories, then the bundled test Noto.
+/// Only TrueType is listed: PDF export embeds TrueType today.
+pub(crate) fn family_defs() -> Vec<FamilyDef> {
+    let mut defs = Vec::new();
+    if let Some(regular) = std::env::var_os("LEGE_DOCWRITE_FONT") {
+        let variant = |name: &str| {
+            std::env::var_os(name)
+                .map(std::path::PathBuf::from)
+                .into_iter()
+                .collect()
+        };
+        defs.push(FamilyDef {
+            name: "Custom",
+            files: [
+                vec![regular.into()],
+                variant("LEGE_DOCWRITE_FONT_BOLD"),
+                variant("LEGE_DOCWRITE_FONT_ITALIC"),
+                variant("LEGE_DOCWRITE_FONT_BOLD_ITALIC"),
+            ],
+        });
+    }
+    let supplemental = std::path::Path::new("/System/Library/Fonts/Supplemental");
+    for name in ["Georgia", "Times New Roman"] {
+        let file = |style: &str| vec![supplemental.join(format!("{name}{style}.ttf"))];
+        defs.push(FamilyDef {
+            name: if name == "Georgia" {
+                "Georgia"
+            } else {
+                "Times New Roman"
+            },
+            files: [file(""), file(" Bold"), file(" Italic"), file(" Bold Italic")],
+        });
+    }
+    let mut roots = vec![std::path::PathBuf::from("/usr/share/fonts")];
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        roots.push(home.join(".local/share/fonts"));
+        roots.push(home.join(".fonts"));
+    }
+    let under = |dir: &str, file: &str| {
+        roots
+            .iter()
+            .map(|root| root.join(dir).join(file))
+            .collect::<Vec<_>>()
+    };
+    for (name, dir, stems) in [
+        (
+            "Noto Serif",
+            "truetype/noto",
+            [
+                "NotoSerif-Regular",
+                "NotoSerif-Bold",
+                "NotoSerif-Italic",
+                "NotoSerif-BoldItalic",
+            ],
+        ),
+        (
+            "FreeSerif",
+            "truetype/freefont",
+            [
+                "FreeSerif",
+                "FreeSerifBold",
+                "FreeSerifItalic",
+                "FreeSerifBoldItalic",
+            ],
+        ),
+        (
+            "Noto Sans",
+            "truetype/noto",
+            [
+                "NotoSans-Regular",
+                "NotoSans-Bold",
+                "NotoSans-Italic",
+                "NotoSans-BoldItalic",
+            ],
+        ),
+        (
+            "Lato",
+            "truetype/lato",
+            ["Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"],
+        ),
+    ] {
+        let [regular, bold, italic, bold_italic] = stems;
+        defs.push(FamilyDef {
+            name,
+            files: [
+                under(dir, &format!("{regular}.ttf")),
+                under(dir, &format!("{bold}.ttf")),
+                under(dir, &format!("{italic}.ttf")),
+                under(dir, &format!("{bold_italic}.ttf")),
+            ],
+        });
+    }
+    let noto = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+    defs.push(FamilyDef {
+        name: "Noto Sans",
+        files: [vec![noto], Vec::new(), Vec::new(), Vec::new()],
+    });
+    defs
+}
+
+/// Load one family: regular, bold, italic, bold italic, as faces and their
+/// files. A style with no readable file is the regular face again. `None`
+/// when even the regular style has no readable file.
+pub(crate) fn load_family_def(def: &FamilyDef) -> Option<Vec<(Face, Vec<u8>)>> {
+    let read = |paths: &[std::path::PathBuf]| -> Option<(Face, Vec<u8>)> {
+        paths.iter().find_map(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            Face::parse(bytes.clone()).ok().map(|face| (face, bytes))
+        })
+    };
+    let regular = read(&def.files[0])?;
+    let mut faces = Vec::with_capacity(4);
+    for style in &def.files[1..] {
+        let face = read(style).or_else(|| {
+            regular
+                .0
+                .duplicate()
+                .ok()
+                .map(|face| (face, regular.1.clone()))
+        });
+        if let Some(face) = face {
+            faces.push(face);
+        }
+    }
+    faces.insert(0, regular);
+    Some(faces)
+}
+
+pub(crate) fn byte_at(text: &str, chars: usize) -> usize {
     text.chars().take(chars).map(|ch| ch.len_utf8()).sum()
 }
 

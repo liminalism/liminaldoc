@@ -432,7 +432,11 @@ impl Editor {
     pub(crate) fn research_pointer(&mut self, pressed: bool) -> bool {
         let (x, y) = self.cursor;
         let pane_left = self.frame_width - self.pane_width();
-        if self.research.is_none() || self.pane_width() == 0 || x < pane_left as f32 {
+        if self.research.is_none()
+            || self.pane_width() == 0
+            || x < pane_left as f32
+            || y < self.toolbar_height() as f32
+        {
             if !pressed && let Some(research) = self.research.as_mut() {
                 research.drag_from = None;
             }

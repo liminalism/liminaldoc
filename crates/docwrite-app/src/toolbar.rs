@@ -1,12 +1,12 @@
 //! The toolbar above the pages, and the one-line prompt it shows when a
 //! command needs text (a chapter's name, a note).
 
-use docwrite_model::{BlockKind, Mark, NoteKind, Position, Selection};
+use docwrite_model::{Align, BlockKind, Mark, NoteKind, Position, Selection};
 use docwrite_typeset::Face;
 
 use crate::Editor;
 
-/// Toolbar height in logical pixels.
+/// Height of one toolbar row in logical pixels.
 pub const TOOLBAR_H: f32 = 34.0;
 
 /// Paragraph kinds the style button cycles through, with their labels.
@@ -27,6 +27,8 @@ pub enum Action {
     Mark(Mark),
     /// Set the next paragraph style.
     CycleStyle,
+    /// Set the next paragraph alignment.
+    CycleAlign,
     /// Body text half a point smaller.
     Smaller,
     /// Body text half a point larger.
@@ -129,7 +131,11 @@ impl Editor {
         if self.fullscreen {
             0
         } else {
-            (TOOLBAR_H * self.ui_scale).round() as i32
+            self.toolbar_buttons(self.frame_width)
+                .last()
+                .map_or((TOOLBAR_H * self.ui_scale).round() as i32, |button| {
+                    button.y + button.h
+                })
         }
     }
 
@@ -154,13 +160,22 @@ impl Editor {
 
     /// The toolbar's buttons, laid out for a window `width` pixels wide.
     pub fn toolbar_buttons(&self, width: i32) -> Vec<Button> {
+        if self.fullscreen || self.prompt.is_some() {
+            return Vec::new();
+        }
         let s = self.ui_scale;
-        let mut x = self.sidebar_width() + (10.0 * s) as i32;
-        let y = (6.0 * s) as i32;
+        let left = self.sidebar_width() + (10.0 * s) as i32;
+        let mut x = left;
+        let mut y = (6.0 * s) as i32;
         let h = (28.0 * s) as i32;
+        let row_height = (TOOLBAR_H * s).round() as i32;
         let mut out = Vec::new();
         let mut push = |action: Action, label: String, active: bool, w: f32, gap: f32| {
             let w = (w * s) as i32;
+            if x > left && x + w > width {
+                x = left;
+                y += row_height;
+            }
             out.push(Button {
                 action,
                 label,
@@ -194,9 +209,16 @@ impl Editor {
             format!("\u{b6} {}", self.current_style_label()),
             false,
             120.0,
+            4.0,
+        );
+        push(
+            Action::CycleAlign,
+            format!("Align {}", self.current_alignment_label()),
+            false,
+            116.0,
             10.0,
         );
-        push(Action::Smaller, "A\u{2212}".into(), false, 34.0, 4.0);
+        push(Action::Smaller, "A-".into(), false, 34.0, 4.0);
         push(Action::Larger, "A+".into(), false, 34.0, 14.0);
         push(Action::NewChapter, "+ Chapter".into(), false, 84.0, 4.0);
         push(Action::RenameChapter, "Rename".into(), false, 66.0, 14.0);
@@ -217,7 +239,6 @@ impl Editor {
             78.0,
             4.0,
         );
-        out.retain(|button| button.x + button.w <= width);
         out
     }
 
@@ -226,6 +247,7 @@ impl Editor {
         match action {
             Action::Mark(mark) => self.toggle_mark(mark),
             Action::CycleStyle => self.cycle_block_style(),
+            Action::CycleAlign => self.cycle_alignment(),
             Action::Smaller => self.change_body_size(-0.5),
             Action::Larger => self.change_body_size(0.5),
             Action::NewChapter => self.open_prompt(PromptKind::NewChapter),
@@ -290,6 +312,79 @@ impl Editor {
         }
     }
 
+    /// The caret block's direct alignment, if the alignment keys set one.
+    pub fn current_alignment(&self) -> Option<Align> {
+        let focus = self.book.selection().focus;
+        self.book
+            .block(focus.block)
+            .ok()
+            .and_then(|block| block.align())
+    }
+
+    /// The alignment button's label for the caret's block.
+    pub fn current_alignment_label(&self) -> &'static str {
+        match self.current_alignment() {
+            None => "Style",
+            Some(Align::Left) => "Left",
+            Some(Align::Justify) => "Justify",
+            Some(Align::Center) => "Center",
+            Some(Align::Right) => "Right",
+        }
+    }
+
+    /// Set every selected block (or the caret's) to `align`, directly. The
+    /// paragraph style still decides every block without an override.
+    pub fn set_alignment(&mut self, align: Align) {
+        let selection = self.book.selection();
+        let ids = self.book.block_ids();
+        let at = |block| ids.iter().position(|id| *id == block);
+        let (Some(a), Some(b)) = (at(selection.anchor.block), at(selection.focus.block)) else {
+            return;
+        };
+        let (from, to) = (a.min(b), a.max(b));
+        let mut changed = false;
+        for id in &ids[from..=to] {
+            if self.book.set_align(*id, Some(align)).is_ok() {
+                changed = true;
+            }
+        }
+        if changed {
+            self.edited();
+        }
+    }
+
+    /// Drop the direct alignment of every selected block (or the caret's),
+    /// so the paragraph style decides again.
+    pub fn clear_alignment(&mut self) {
+        let selection = self.book.selection();
+        let ids = self.book.block_ids();
+        let at = |block| ids.iter().position(|id| *id == block);
+        let (Some(a), Some(b)) = (at(selection.anchor.block), at(selection.focus.block)) else {
+            return;
+        };
+        let (from, to) = (a.min(b), a.max(b));
+        let mut changed = false;
+        for id in &ids[from..=to] {
+            if self.book.set_align(*id, None).is_ok() {
+                changed = true;
+            }
+        }
+        if changed {
+            self.edited();
+        }
+    }
+
+    /// Step the caret's block through Style, Left, Center, Right, Justify.
+    pub fn cycle_alignment(&mut self) {
+        match self.current_alignment() {
+            None => self.set_alignment(Align::Left),
+            Some(Align::Left) => self.set_alignment(Align::Center),
+            Some(Align::Center) => self.set_alignment(Align::Right),
+            Some(Align::Right) => self.set_alignment(Align::Justify),
+            Some(Align::Justify) => self.clear_alignment(),
+        }
+    }
+
     /// Make the body text `delta` points larger (smaller when negative);
     /// the first paragraph follows, and leading keeps its proportion.
     pub fn change_body_size(&mut self, delta: f32) {
@@ -313,6 +408,8 @@ impl Editor {
 
     /// Show a prompt in the toolbar; typing goes to it until Enter or Esc.
     pub fn open_prompt(&mut self, kind: PromptKind) {
+        // Prompts and footnote sessions never overlap: the caret goes home.
+        self.end_footnote();
         let text = match kind {
             PromptKind::RenameChapter => self.current_chapter_title().unwrap_or_default(),
             PromptKind::Find | PromptKind::Replace => self.last_find.clone().unwrap_or_default(),
@@ -658,7 +755,14 @@ impl Editor {
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
             let x = button.x + ((button.w as f32 - label_w) / 2.0) as i32;
-            self.paint_label(painter, face, &button.label, x, baseline, size);
+            self.paint_label(
+                painter,
+                face,
+                &button.label,
+                x,
+                button.y + (20.0 * s) as i32,
+                size,
+            );
         }
         if pages > 0 {
             let top = self.pager.page_top();
@@ -677,12 +781,10 @@ impl Editor {
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
             let x = width - status_w as i32 - (14.0 * s) as i32;
-            let last_button = self
-                .toolbar_buttons(width)
-                .last()
-                .map_or(left, |button| button.x + button.w);
-            if x > last_button + (10.0 * s) as i32 {
-                self.paint_label(painter, face, &status, x, baseline, size);
+            if let Some(last) = self.toolbar_buttons(width).last()
+                && x > last.x + last.w + (10.0 * s) as i32
+            {
+                self.paint_label(painter, face, &status, x, last.y + (20.0 * s) as i32, size);
             }
         }
     }

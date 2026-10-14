@@ -14,9 +14,10 @@ use std::time::Duration;
 
 use docwrite_app::PromptKind;
 use docwrite_app::tabs::{DocumentTabs, TabCommand, TabStripLayout};
-use docwrite_model::Mark;
+use docwrite_model::{Align, Mark};
 use pixelkit_shell::clipboard::Clipboard;
-use pixelkit_shell::{KeyEvent, KeyInput};
+use pixelkit_shell::KeyInput;
+use pixelkit_windowing::KeyEvent;
 use rfd::FileDialog;
 
 /// Typing has to pause this long before autosave writes the bundle.
@@ -89,7 +90,7 @@ fn run() -> Result<(), RunError> {
 }
 
 fn export(book: &Path, out: &Path) -> Result<(), RunError> {
-    let editor = docwrite_app::Editor::open_existing(book).map_err(RunError::other)?;
+    let mut editor = docwrite_app::Editor::open_existing(book).map_err(RunError::other)?;
     match out.extension().and_then(|ext| ext.to_str()) {
         Some("pdf") => editor.export_pdf_to(out),
         Some("md") => editor.export_markdown_to(out),
@@ -134,8 +135,8 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         last_title: String::new(),
         ui_scale: 1.0,
     };
-    let config = pixelkit_shell::WindowConfig::new(&title, 1100.0, 800.0);
-    pixelkit_shell::run_app(app, config).map_err(|err| {
+    let config = pixelkit_windowing::WindowConfig::new(&title, 1100.0, 800.0);
+    pixelkit_windowing::run_app(app, config).map_err(|err| {
         let message = err.to_string();
         let lower = message.to_ascii_lowercase();
         if lower.contains("display") || lower.contains("window") || lower.contains("connection") {
@@ -414,6 +415,10 @@ impl EditorApp {
             }
             "KeyB" if !alt => self.tabs.toggle_mark(Mark::Bold),
             "KeyI" if !alt => self.tabs.toggle_mark(Mark::Italic),
+            "KeyL" => self.tabs.set_alignment(Align::Left),
+            "KeyE" if !alt => self.tabs.set_alignment(Align::Center),
+            "KeyR" if !shift => self.tabs.set_alignment(Align::Right),
+            "KeyJ" => self.tabs.set_alignment(Align::Justify),
             "KeyH" if shift => self.tabs.toggle_mark(Mark::SmallCaps),
             "Equal" if shift => self.tabs.toggle_mark(Mark::Superscript),
             "Minus" if shift => self.tabs.toggle_mark(Mark::Subscript),
@@ -428,15 +433,22 @@ impl EditorApp {
                 self.tabs.set_spread(on);
             }
             "KeyR" if shift => self.tabs.open_prompt(PromptKind::RenameChapter),
-            "KeyN" if alt => self.tabs.open_prompt(PromptKind::Footnote),
+            "KeyN" if alt => {
+                self.tabs.start_footnote();
+            }
             "KeyF" if alt => self.tabs.open_prompt(PromptKind::Replace),
             "KeyE" if alt => self.tabs.open_prompt(PromptKind::Endnote),
             "KeyT" if alt => self.tabs.toggle_contents(),
+            "KeyT" if shift => self.tabs.cycle_theme(),
+            "KeyT" => {
+                self.tabs.cycle_font_family();
+                let name = self.tabs.font_family_name().to_string();
+                self.report(Ok(format!("font {name}")));
+            }
             "KeyI" if alt => self.tabs.open_prompt(PromptKind::IndexTerm),
             "KeyB" if alt && shift => self.tabs.open_prompt(PromptKind::ImportBibliography),
             "KeyB" if alt => self.tabs.open_prompt(PromptKind::BibliographyEntry),
             "KeyF" if shift => self.tabs.toggle_fullscreen(),
-            "KeyT" if shift => self.tabs.cycle_theme(),
             "KeyF" => self.tabs.open_prompt(PromptKind::Find),
             "KeyG" => {
                 self.tabs.find_again();
@@ -448,6 +460,64 @@ impl EditorApp {
                 }
             }
             _ => return false,
+        }
+        true
+    }
+
+    /// Keys while a footnote session is open. Returns whether the key was
+    /// used; anything unused ends the session and runs as a normal key.
+    fn footnote_key(&mut self, event: &KeyEvent) -> bool {
+        if event.modifiers.accel() {
+            // Paste, undo and redo stay in the note; every other
+            // accelerator leaves footnote mode and runs normally.
+            match event.physical.as_str() {
+                "KeyV" => {
+                    if let Some(text) = self.clipboard.text() {
+                        let text: String = text
+                            .chars()
+                            .filter(|ch| !ch.is_control() || *ch == '\n' || *ch == '\t')
+                            .collect();
+                        self.tabs.footnote_type(&text);
+                    }
+                    return true;
+                }
+                "KeyZ" => {
+                    if event.modifiers.shift {
+                        self.tabs.redo();
+                    } else {
+                        self.tabs.undo();
+                    }
+                    return true;
+                }
+                "KeyY" => {
+                    self.tabs.redo();
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+        match event.key {
+            KeyInput::Enter => {
+                self.tabs.end_footnote();
+            }
+            KeyInput::Escape => {
+                self.tabs.end_footnote();
+            }
+            KeyInput::Backspace => self.tabs.footnote_backspace(),
+            KeyInput::Delete => self.tabs.footnote_delete_forward(),
+            KeyInput::Left => self.tabs.footnote_move(true),
+            KeyInput::Right => self.tabs.footnote_move(false),
+            KeyInput::Home => self.tabs.footnote_home(),
+            KeyInput::End => self.tabs.footnote_end(),
+            KeyInput::Up | KeyInput::Down | KeyInput::Tab => {}
+            _ => {
+                let text = self.input_text(event);
+                if text.is_empty() {
+                    // A dead key commits nothing; anything else unknown exits.
+                    return matches!(event.key, KeyInput::Character(_));
+                }
+                self.tabs.footnote_type(&text);
+            }
         }
         true
     }
@@ -483,7 +553,7 @@ impl EditorApp {
     }
 }
 
-impl pixelkit_shell::PixelApp for EditorApp {
+impl pixelkit_windowing::PixelApp for EditorApp {
     fn render(&mut self, buffer: &mut pixelkit_raster::WindowBuffer, scale: pixelkit_shell::Scale) {
         self.ui_scale = scale.0;
         self.tabs.set_ui_scale(scale.0);
@@ -541,13 +611,13 @@ impl pixelkit_shell::PixelApp for EditorApp {
         }
     }
 
-    fn cursor_shape(&self) -> pixelkit_shell::CursorShape {
+    fn cursor_shape(&self) -> pixelkit_windowing::CursorShape {
         match self.tabs.pointer_shape() {
-            docwrite_app::PointerShape::Arrow => pixelkit_shell::CursorShape::Default,
-            docwrite_app::PointerShape::Text => pixelkit_shell::CursorShape::Text,
-            docwrite_app::PointerShape::Hand => pixelkit_shell::CursorShape::Pointer,
+            docwrite_app::PointerShape::Arrow => pixelkit_windowing::CursorShape::Default,
+            docwrite_app::PointerShape::Text => pixelkit_windowing::CursorShape::Text,
+            docwrite_app::PointerShape::Hand => pixelkit_windowing::CursorShape::Pointer,
             docwrite_app::PointerShape::ResizeColumn => {
-                pixelkit_shell::CursorShape::ResizeHorizontal
+                pixelkit_windowing::CursorShape::ResizeHorizontal
             }
         }
     }
@@ -624,6 +694,12 @@ impl pixelkit_shell::PixelApp for EditorApp {
         if self.prompt_key(event) {
             return;
         }
+        if self.tabs.in_footnote() {
+            if self.footnote_key(event) {
+                return;
+            }
+            self.tabs.end_footnote();
+        }
         let modifiers = event.modifiers;
         if modifiers.accel() && self.accelerator(event) {
             return;
@@ -650,8 +726,8 @@ impl pixelkit_shell::PixelApp for EditorApp {
             KeyInput::Down => self.tabs.move_line(true, shift),
             KeyInput::Home => self.tabs.move_home(shift),
             KeyInput::End => self.tabs.move_end(shift),
-            KeyInput::PageDown => self.tabs.page_down(),
-            KeyInput::PageUp => self.tabs.page_up(),
+            KeyInput::PageDown => self.tabs.page(true, shift),
+            KeyInput::PageUp => self.tabs.page(false, shift),
             KeyInput::Backspace => self.tabs.backspace(),
             KeyInput::Delete => self.tabs.delete_forward(),
             KeyInput::Enter => self.tabs.type_text("\n"),
@@ -690,33 +766,36 @@ impl pixelkit_shell::PixelApp for EditorApp {
         }
     }
 
-    fn on_ime(&mut self, ime: &pixelkit_shell::ImeEvent) {
+    fn on_ime(&mut self, ime: &pixelkit_windowing::ImeEvent) {
         match ime {
-            pixelkit_shell::ImeEvent::Commit(text) => {
+            pixelkit_windowing::ImeEvent::Commit(text) => {
                 self.ime_composing = false;
                 if self.tabs.prompt().is_some() {
                     self.tabs.set_preedit("");
                     self.tabs.prompt_type(text);
+                } else if self.tabs.in_footnote() {
+                    self.tabs.set_preedit("");
+                    self.tabs.footnote_type(text);
                 } else {
                     self.tabs.commit_ime(text);
                 }
             }
-            pixelkit_shell::ImeEvent::Preedit(text, _) => {
+            pixelkit_windowing::ImeEvent::Preedit(text, _) => {
                 self.ime_composing = !text.is_empty();
                 self.tabs.set_preedit(text);
             }
-            pixelkit_shell::ImeEvent::Disabled => {
+            pixelkit_windowing::ImeEvent::Disabled => {
                 self.ime_composing = false;
                 self.tabs.set_preedit("");
             }
-            pixelkit_shell::ImeEvent::Enabled => {}
+            pixelkit_windowing::ImeEvent::Enabled => {}
         }
     }
 
-    fn ime_cursor_area(&self) -> Option<pixelkit_shell::ImeCursorArea> {
+    fn ime_cursor_area(&self) -> Option<pixelkit_windowing::ImeCursorArea> {
         self.tabs
             .caret_area()
-            .map(|caret| pixelkit_shell::ImeCursorArea {
+            .map(|caret| pixelkit_windowing::ImeCursorArea {
                 x: caret.x,
                 y: caret.y + self.tab_height as f64,
                 width: caret.width,
@@ -724,12 +803,12 @@ impl pixelkit_shell::PixelApp for EditorApp {
             })
     }
 
-    fn on_scroll_event(&mut self, event: &pixelkit_shell::ScrollEvent) {
+    fn on_scroll_event(&mut self, event: &pixelkit_windowing::ScrollEvent) {
         let phase = match event.phase {
-            pixelkit_shell::GesturePhase::Started => docwrite_app::Phase::Started,
-            pixelkit_shell::GesturePhase::Moved => docwrite_app::Phase::Moved,
-            pixelkit_shell::GesturePhase::Ended => docwrite_app::Phase::Ended,
-            pixelkit_shell::GesturePhase::Cancelled => docwrite_app::Phase::Cancelled,
+            pixelkit_windowing::GesturePhase::Started => docwrite_app::Phase::Started,
+            pixelkit_windowing::GesturePhase::Moved => docwrite_app::Phase::Moved,
+            pixelkit_windowing::GesturePhase::Ended => docwrite_app::Phase::Ended,
+            pixelkit_windowing::GesturePhase::Cancelled => docwrite_app::Phase::Cancelled,
         };
         self.tabs
             .scroll_gesture(-(event.pixel_dy as f64) / 400.0, phase);
@@ -737,10 +816,12 @@ impl pixelkit_shell::PixelApp for EditorApp {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod input_tests {
     use super::*;
     use docwrite_model::{Position, Selection};
-    use pixelkit_shell::{Modifiers, PixelApp};
+    use pixelkit_shell::Modifiers;
+    use pixelkit_windowing::PixelApp;
 
     fn app() -> EditorApp {
         EditorApp {
@@ -810,10 +891,10 @@ mod input_tests {
     fn prompt_receives_ime_commit_and_space_without_editing_manuscript() {
         let mut app = app();
         app.tabs.open_prompt(PromptKind::Find);
-        app.on_ime(&pixelkit_shell::ImeEvent::Preedit("あ".into(), None));
+        app.on_ime(&pixelkit_windowing::ImeEvent::Preedit("あ".into(), None));
         app.on_key_event(&space(true, false, Modifiers::default()));
         assert_eq!(app.tabs.prompt().unwrap().text, "");
-        app.on_ime(&pixelkit_shell::ImeEvent::Commit("あ".into()));
+        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("あ".into()));
         app.on_key_event(&space(true, false, Modifiers::default()));
         assert_eq!(app.tabs.prompt().unwrap().text, "あ ");
         assert_eq!(app.tabs.book().plain_text(), "");

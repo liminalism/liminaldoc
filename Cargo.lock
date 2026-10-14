@@ -667,6 +667,7 @@ dependencies = [
  "lege-pdf-read",
  "pixelkit-raster",
  "pixelkit-shell",
+ "pixelkit-windowing",
  "quick-xml",
  "rfd",
  "zip 8.6.0",
@@ -2516,6 +2517,16 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "pixelkit-raster",
  "zeroize",
+]
+
+[[package]]
+name = "pixelkit-windowing"
+version = "0.1.0"
+dependencies = [
+ "pixelkit-raster",
+ "pixelkit-shell",
+ "softbuffer",
+ "winit",
 ]
 
 [[package]]

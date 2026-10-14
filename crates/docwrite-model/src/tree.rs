@@ -10,6 +10,7 @@ use ropey::Rope;
 
 use crate::error::ModelError;
 use crate::ids::{BlockId, ChapterId, IdGen, NoteId, PartId, SectionId};
+use crate::publish::Align;
 use crate::runs::{self, Run, RunMarks};
 
 /// Where a block sits. Indices are valid only until the next structural edit.
@@ -92,6 +93,10 @@ impl Note {
             text: Rope::from_str(text),
         }
     }
+
+    pub(crate) fn set_text(&mut self, text: &str) {
+        self.text = Rope::from_str(text);
+    }
 }
 
 /// One block: a rope of text, the runs over it, and an optional note slot.
@@ -103,6 +108,10 @@ pub struct Block {
     text: Rope,
     runs: Vec<Run>,
     note: Option<NoteId>,
+    /// Direct alignment, as the alignment keys set it. `None` follows the
+    /// paragraph style. Older bundles predate this field and load as `None`.
+    #[serde(default)]
+    align: Option<Align>,
 }
 
 impl Block {
@@ -136,6 +145,12 @@ impl Block {
         self.note
     }
 
+    /// Direct alignment override, if the alignment keys set one. `None`
+    /// follows the block's paragraph style.
+    pub fn align(&self) -> Option<Align> {
+        self.align
+    }
+
     pub(crate) fn text_rope(&self) -> &Rope {
         &self.text
     }
@@ -156,6 +171,10 @@ impl Block {
         self.note = note;
     }
 
+    pub(crate) fn set_align(&mut self, align: Option<Align>) {
+        self.align = align;
+    }
+
     pub(crate) fn new(id: BlockId, kind: BlockKind, text: &str, runs: Vec<Run>) -> Self {
         Self {
             id,
@@ -163,6 +182,7 @@ impl Block {
             text: Rope::from_str(text),
             runs,
             note: None,
+            align: None,
         }
     }
 

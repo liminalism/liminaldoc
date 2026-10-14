@@ -327,3 +327,40 @@ record docwrite.work.pdf-document-tab/1 : work {
         when multiple PDF tabs are open.
         """
 }
+
+record docwrite.work.spellcheck-optional/1 : work {
+    title "Optional SymSpell spellchecking behind a feature flag"
+    state proposed
+    intent """
+        Add optional, off-by-default spellchecking to the writer: SymSpell (symspell 0.5.x, MIT, pure Rust) behind a `spellcheck` cargo feature in a new docwrite-spell crate, run as a debounced per-paragraph background job that never touches the keypress-to-present path.
+        """
+    note """
+        Scoped 2026-10-08 by a survey agent. Design: worker mirrors the background-save debounce (dirty BlockIds, 300ms+ idle); squiggles stored as derived per-block annotations painted as a decoration pass (theme gains squiggle color; zero layout impact); suggestions (lookup top-5) computed lazily when the popup opens. UI: default off, toolbar toggle, F7 check-next, Ctrl+. popup with <=5 suggestions + Add to dictionary, Esc dismisses, caret never moves. Dictionaries: SCOWL-derived en_US/en_GB frequency lists (~1MB each, permissive BSD-style grant + Ispell affix terms, attribution file carried), user words in spell-words.txt inside the bundle; SymSpell stock frequency_dictionary_en_82_765.txt acceptable. API sketch: SpellChecker::load(dict)->Result, check_paragraph(&str)->Vec<Misspelling>, suggest(&str, n)->Vec<Suggestion>, add_user_word(&str). Alternatives rejected: zspell (custom non-standard license, slower, Jun 2024), hunspell-rs bindings (C++ build fragility, 2022). Risks: SymSpell ASCII bias needs fold rules for diacritics; 0.5.x API churn (pin exact, wrap behind trait); deletion index tens of MB resident (stays behind the flag). Est. ~800-1000 LOC: new crate ~500-700 (dict/check/worker/types) + ~250 app (lib/view/commands/toolbar) + ~30 typeset decoration hook. Acceptance: latency gate unchanged with flag on; squiggle <=1s after pause; check+clippy clean default and --all-features; offline; license notices present. Sequence: crate+dict+unit tests, worker wiring, squiggle+toggle, popup+keys+user words, latency run+notices.
+        """
+    depends_on [ @docwrite.req.typing-latency/1 ]
+    author "dk"
+}
+
+record docwrite.work.writer-toolbar-wrap/1 : work {
+    title "Keep writer commands reachable when the window narrows"
+    state completed
+    intent """
+        Continue M6 window drafting by wrapping the existing toolbar controls when
+        the window or UI scale leaves insufficient room for one row. Derive the
+        page viewport and source-pane offset from the same toolbar geometry, keep
+        pointer targets aligned with the labels, and preserve prompt and fullscreen
+        behavior. This does not complete the manual M6 window-draft check.
+        """
+    acceptance {
+        check reachable {
+            statement """
+                Every existing toolbar action remains visible and clickable at narrow and scaled window sizes; wrapped rows do not overlap pages or intercept prompt editing.
+                """
+            method command
+            command "cargo test -p docwrite-app --test toolbar"
+            verified_by [ @docwrite.evidence.writer-toolbar-wrap/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}

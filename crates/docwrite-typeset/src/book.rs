@@ -304,6 +304,9 @@ fn layout_inputs(
                             .unwrap_or("Body"),
                     };
                     let mut style = map_style(&named_style(book, style_name));
+                    if let Some(align) = block.align() {
+                        style.align = map_align(align);
+                    }
                     if matches!(block.kind(), BlockKind::Image { .. }) {
                         style.name = "Image".into();
                     }
@@ -605,6 +608,15 @@ fn named_style(book: &Book, name: &str) -> docwrite_model::ParagraphStyle {
         })
 }
 
+fn map_align(align: docwrite_model::Align) -> Alignment {
+    match align {
+        docwrite_model::Align::Left => Alignment::Left,
+        docwrite_model::Align::Justify => Alignment::Justify,
+        docwrite_model::Align::Center => Alignment::Center,
+        docwrite_model::Align::Right => Alignment::Right,
+    }
+}
+
 fn map_style(style: &docwrite_model::ParagraphStyle) -> ParagraphStyle {
     ParagraphStyle {
         hyphenate: style.hyphenate,
@@ -616,12 +628,7 @@ fn map_style(style: &docwrite_model::ParagraphStyle) -> ParagraphStyle {
         first_indent: style.first_indent_pt,
         name: style.name.clone(),
         widow_orphan: true,
-        align: match style.align {
-            docwrite_model::Align::Left => Alignment::Left,
-            docwrite_model::Align::Justify => Alignment::Justify,
-            docwrite_model::Align::Center => Alignment::Center,
-            docwrite_model::Align::Right => Alignment::Right,
-        },
+        align: map_align(style.align),
         left_indent: style.left_indent_pt,
         right_indent: style.right_indent_pt,
         space_before: style.space_before_pt,

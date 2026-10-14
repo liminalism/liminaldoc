@@ -1,5 +1,5 @@
 //! Paint the editor without a window and save the frame as a PNG:
-//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread]`
+//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT]`
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -20,10 +20,16 @@ fn main() {
         .position(|arg| arg == "--source")
         .and_then(|index| args.get(index + 1))
         .cloned();
+    let footnote = args
+        .iter()
+        .position(|arg| arg == "--footnote")
+        .and_then(|index| args.get(index + 1))
+        .cloned();
     let plain: Vec<&String> = args
         .iter()
         .filter(|arg| !arg.starts_with("--") && arg.parse::<f32>().is_err())
         .filter(|arg| Some(*arg) != source.as_ref())
+        .filter(|arg| Some(*arg) != footnote.as_ref())
         .collect();
     let page: u32 = args
         .iter()
@@ -50,6 +56,11 @@ fn main() {
     let mut frame = pixelkit_raster::WindowBuffer::new(width, height);
     editor.paint(&mut frame);
     editor.jump_to_page(page);
+    if let Some(text) = &footnote {
+        // The hotkey flow, frozen mid-note: the caret sits in the footnote.
+        editor.start_footnote();
+        editor.footnote_type(text);
+    }
     editor.paint(&mut frame);
     pixelkit_raster::png::write(out.as_str(), &frame).expect("write png");
     println!("wrote {out}: page {page} of {}", editor.pages_painted());
