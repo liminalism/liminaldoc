@@ -29,6 +29,15 @@ blank and generated pages are shown without moving the insertion point.
 Ctrl+F opens Find; F3 or Ctrl+Shift+G repeats the search (use Cmd instead of Ctrl
 on macOS). Navigation reuses the current layout and does not re-typeset the book.
 
+Autosave runs every **15 minutes** by default. Ctrl+Alt+S (Cmd+Option+S on macOS)
+opens a small prompt to choose **15–120 whole minutes**; Enter saves the setting
+for future launches, Escape cancels. It works in fullscreen and applies to all
+open manuscripts, including inactive tabs. Continued typing does not postpone
+autosave; serialization and disk writes run in the background. Ctrl+S saves
+immediately and restarts the timer. New or imported documents need an initial
+Save As to establish their `.legebook` destination. Failed autosaves are reported,
+leave changes unsaved, and retry at the next interval.
+
 ## Repository dependencies
 
 The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration but are excluded from its Cargo workspace; its `cargo viewer` and `cargo docwrite` aliases point here. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.

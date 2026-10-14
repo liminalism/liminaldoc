@@ -341,6 +341,35 @@ record docwrite.work.spellcheck-optional/1 : work {
     author "dk"
 }
 
+record docwrite.work.writer-autosave-interval/1 : work {
+    title "Configurable background autosave every 15 to 120 minutes"
+    state completed
+    intent """
+        Replace the 1.5-second idle autosave trigger with elapsed-time autosave at
+        a user-selected interval of 15 through 120 whole minutes, default 15.
+        Offer a minimal Ctrl/Cmd+Alt+S prompt and persist the application preference
+        across launches. Apply it to every open native manuscript, including
+        inactive tabs. Continued typing must not postpone the deadline; serialize
+        and write through the existing background worker with no overlapping saves.
+        Manual saves reset the schedule. New/imported documents need Save As to
+        establish their native bundle destination; do not overwrite import sources.
+        Retain failed-save dirty state and retry on the next interval.
+        """
+    acceptance {
+        check autosave {
+            statement """
+                Intervals 15–120 minutes validate and persist, the prompt works in fullscreen, elapsed deadlines save dirty native manuscripts despite ongoing edits, clean/unnamed documents are skipped, and saves cannot overlap or discard edits made during saving. Failures remain recoverable.
+                """
+            method command
+            command "cargo test -p docwrite-app"
+            verified_by [ @docwrite.evidence.writer-autosave-interval/1 ]
+        }
+    }
+    implements [ @docwrite.req.minimal-writer-navigation, @docwrite.req.typing-latency ]
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}
+
 record docwrite.work.writer-page-seek/1 : work {
     title "Seek by page number and keep long-book paging predictable"
     state completed

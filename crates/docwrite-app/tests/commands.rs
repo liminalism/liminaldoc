@@ -3,8 +3,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::time::Duration;
-
 use docwrite_app::Editor;
 use docwrite_model::{Position, Selection};
 
@@ -164,15 +162,11 @@ fn a_new_book_saves_reopens_autosaves_and_exports() {
     );
     assert_eq!(reopened.book().title(), "Novel");
 
-    // Autosave waits for a pause, then writes off the typing thread.
+    // Manual save remains available before the configured autosave deadline.
     editor.type_text(" Later.");
-    assert!(
-        !editor.autosave_if_idle(Duration::from_secs(60)),
-        "typing just happened"
-    );
-    assert!(editor.autosave_if_idle(Duration::ZERO));
+    assert!(!editor.autosave_if_due(Default::default()));
+    editor.save_now().unwrap();
     assert!(!editor.is_dirty());
-    editor.save_now().unwrap(); // waits for the background save
     assert!(editor.take_save_error().is_none());
     let reopened = Editor::open_or_create(&path).unwrap();
     assert!(reopened.book().plain_text().contains("Later."));

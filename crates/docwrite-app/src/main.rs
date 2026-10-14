@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use docwrite_app::autosave::{self, AutosaveInterval};
 use docwrite_app::tabs::{DocumentTabs, TabCommand, TabStripLayout};
 use docwrite_app::{PromptKind, PromptMotion};
 use docwrite_model::{Align, Mark};
@@ -19,9 +20,6 @@ use pixelkit_shell::KeyInput;
 use pixelkit_shell::clipboard::Clipboard;
 use pixelkit_windowing::KeyEvent;
 use rfd::FileDialog;
-
-/// Typing has to pause this long before autosave writes the bundle.
-const AUTOSAVE_IDLE: Duration = Duration::from_millis(1500);
 
 fn main() {
     match run() {
@@ -123,11 +121,24 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         editor.open_source(source).map_err(RunError::other)?;
     }
     let title = format!("{} — liminaldoc-writer", editor.book().title());
+    let autosave_settings = autosave::settings_path();
+    let (autosave_interval, status) =
+        match autosave_settings.as_deref().map(autosave::load_interval) {
+            Some(Err(error)) => {
+                let message = format!("Cannot load autosave setting; using 15 minutes: {error}");
+                eprintln!("{message}");
+                (AutosaveInterval::default(), Some(message))
+            }
+            Some(Ok(interval)) => (interval, None),
+            None => (AutosaveInterval::default(), None),
+        };
     let app = EditorApp {
         tabs: DocumentTabs::new(editor),
         clipboard: Clipboard::new(),
         announced: false,
-        status: None,
+        status,
+        autosave_interval,
+        autosave_settings,
         ime_composing: false,
         tab_height: 0,
         cursor: (0.0, 0.0),
@@ -148,6 +159,8 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
 }
 
 struct EditorApp {
+    autosave_interval: AutosaveInterval,
+    autosave_settings: Option<PathBuf>,
     tabs: DocumentTabs,
     clipboard: Clipboard,
     announced: bool,
@@ -162,6 +175,28 @@ struct EditorApp {
 }
 
 impl EditorApp {
+    fn apply_autosave_request(&mut self) {
+        let Some(interval) = self.tabs.take_autosave_request() else {
+            return;
+        };
+        let result = self
+            .autosave_settings
+            .as_deref()
+            .ok_or_else(|| "No user settings directory is available".to_string())
+            .and_then(|path| autosave::save_interval(path, interval));
+        match result {
+            Ok(()) => {
+                self.autosave_interval = interval;
+                self.status = Some(format!("Autosave every {} minutes", interval.minutes()));
+            }
+            Err(error) => {
+                self.tabs.open_autosave_prompt(interval);
+                self.tabs
+                    .set_prompt_error(format!("Cannot save setting: {error}"));
+            }
+        }
+    }
+
     /// Use the platform's complete text payload. PixelKit currently emits
     /// named Space as a character key with an empty payload on some hosts.
     fn input_text(&self, event: &KeyEvent) -> String {
@@ -407,6 +442,9 @@ impl EditorApp {
                     self.tabs.paste_text(&text);
                 }
             }
+            "KeyS" if alt => {
+                self.tabs.open_autosave_prompt(self.autosave_interval);
+            }
             "KeyS" if shift => {
                 self.save_as_dialog();
             }
@@ -555,6 +593,7 @@ impl EditorApp {
         match event.key {
             KeyInput::Enter => {
                 self.tabs.commit_prompt();
+                self.apply_autosave_request();
             }
             KeyInput::Escape => {
                 self.tabs.cancel_prompt();
@@ -663,7 +702,7 @@ impl pixelkit_windowing::PixelApp for EditorApp {
     fn tick(&mut self) {
         let mut errors = Vec::new();
         for editor in self.tabs.iter_mut() {
-            editor.autosave_if_idle(AUTOSAVE_IDLE);
+            editor.autosave_if_due(self.autosave_interval);
             if let Some(err) = editor.take_save_error() {
                 errors.push(err);
             }
@@ -859,6 +898,8 @@ mod input_tests {
 
     fn app() -> EditorApp {
         EditorApp {
+            autosave_interval: AutosaveInterval::default(),
+            autosave_settings: None,
             tabs: DocumentTabs::new(docwrite_app::Editor::with_book(docwrite_model::Book::new(
                 "Test",
             ))),
@@ -883,6 +924,66 @@ mod input_tests {
             repeat,
             modifiers,
         }
+    }
+
+    #[test]
+    fn autosave_setting_prompt_validates_persists_and_keeps_fullscreen() {
+        let mut app = app();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("autosave-minutes");
+        app.autosave_settings = Some(path.clone());
+        app.tabs.set_fullscreen(true);
+        app.on_key_event(&KeyEvent {
+            key: KeyInput::Character('s'),
+            text: "s".into(),
+            physical: "KeyS".into(),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers {
+                control: true,
+                logo: true,
+                alt: true,
+                ..Modifiers::default()
+            },
+        });
+        assert_eq!(app.tabs.prompt_selected_text().as_deref(), Some("15"));
+        assert!(app.tabs.is_fullscreen());
+        let enter = KeyEvent {
+            key: KeyInput::Enter,
+            text: String::new(),
+            physical: "Enter".into(),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        app.tabs.prompt_type("14");
+        app.on_key_event(&enter);
+        assert!(app.tabs.prompt().unwrap().error.is_some());
+        assert!(!path.exists());
+        app.tabs.prompt_type("120");
+        app.on_key_event(&enter);
+        assert!(app.tabs.prompt().is_none());
+        assert!(app.tabs.is_fullscreen());
+        assert_eq!(app.autosave_interval.minutes(), 120);
+        assert_eq!(
+            autosave::load_interval(&path).unwrap(),
+            app.autosave_interval
+        );
+        assert!(!app.tabs.is_dirty());
+
+        app.tabs.open_autosave_prompt(app.autosave_interval);
+        app.tabs.prompt_type("30");
+        app.tabs.cancel_prompt();
+        app.apply_autosave_request();
+        assert_eq!(app.autosave_interval.minutes(), 120);
+
+        app.autosave_settings = Some(path.join("blocked"));
+        app.tabs.open_autosave_prompt(app.autosave_interval);
+        app.tabs.prompt_type("60");
+        app.on_key_event(&enter);
+        assert!(app.tabs.prompt().unwrap().error.is_some());
+        assert_eq!(app.autosave_interval.minutes(), 120);
+        assert_eq!(autosave::load_interval(&path).unwrap().minutes(), 120);
     }
 
     #[test]

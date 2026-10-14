@@ -54,6 +54,8 @@ pub enum Action {
 pub enum PromptKind {
     /// A physical page number to navigate to.
     GoToPage,
+    /// Application autosave interval in whole minutes.
+    AutosaveInterval,
     /// The title of a new chapter.
     NewChapter,
     /// A new title for the caret's chapter.
@@ -84,6 +86,7 @@ impl PromptKind {
     fn label(self) -> &'static str {
         match self {
             Self::GoToPage => "Go to page:",
+            Self::AutosaveInterval => "Autosave minutes (15–120):",
             Self::NewChapter => "New chapter title:",
             Self::RenameChapter => "Rename chapter:",
             Self::Footnote => "Footnote:",
@@ -415,7 +418,7 @@ impl Editor {
             PromptKind::Find | PromptKind::Replace => self.last_find.clone().unwrap_or_default(),
             _ => String::new(),
         };
-        if self.fullscreen && kind != PromptKind::GoToPage {
+        if self.fullscreen && !matches!(kind, PromptKind::GoToPage | PromptKind::AutosaveInterval) {
             self.set_fullscreen(false);
         }
         self.prompt = Some(Prompt::new(kind, text));
@@ -434,13 +437,21 @@ impl Editor {
         self.prompt.take().is_some()
     }
 
-    /// Act on the prompt's text. Invalid page numbers keep it open for correction.
+    /// Act on the prompt's text. Invalid numeric settings remain open for correction.
     pub fn commit_prompt(&mut self) -> bool {
         let Some(mut prompt) = self.prompt.take() else {
             return false;
         };
         let text = prompt.text.trim().to_string();
         match prompt.kind {
+            PromptKind::AutosaveInterval => match crate::autosave::AutosaveInterval::parse(&text) {
+                Ok(interval) => self.autosave_request = Some(interval),
+                Err(error) => {
+                    prompt.error = Some(error);
+                    self.prompt = Some(prompt);
+                    self.prompt_select_all();
+                }
+            },
             PromptKind::GoToPage => {
                 let page = text.parse::<u32>().ok();
                 if !page.is_some_and(|page| self.seek_page(page)) {

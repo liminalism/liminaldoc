@@ -699,6 +699,19 @@ record docwrite.evidence.window-features-2026-09-24/1 : evidence {
         """
 }
 
+record docwrite.evidence.writer-autosave-interval/1 : evidence {
+    title "All 67 docwrite-app tests passed, including six added tests covering interval bounds and preference replacement, fullscreen shortcut and invalid/cancelled/failed setting changes, elapsed deadlines despite continued typing, preservation of newer edits during background writes, 120-minute timing, manual-save reset, overlapping-save prevention, initial Save As, and failure/retry recovery. Existing typing/navigation latency gates passed. Workspace all-target check passed without warnings. Host tick iterates every document tab with the shared interval; serialization and bundle writes remain in the background worker."
+    state verified
+    result pass
+    method command
+    observed_at git:82de1e924bf201d5416452e68e191bfa194f981a
+    command "cargo test -p docwrite-app; cargo check --workspace --all-targets; git diff --check"
+    summary """
+        All 67 docwrite-app tests passed, including six added tests covering interval bounds and preference replacement, fullscreen shortcut and invalid/cancelled/failed setting changes, elapsed deadlines despite continued typing, preservation of newer edits during background writes, 120-minute timing, manual-save reset, overlapping-save prevention, initial Save As, and failure/retry recovery. Existing typing/navigation latency gates passed. Workspace all-target check passed without warnings. Host tick iterates every document tab with the shared interval; serialization and bundle writes remain in the background worker.
+        """
+    author "dk"
+}
+
 record docwrite.evidence.writer-page-seek-behavior/1 : evidence {
     title "Working tree based on c1e92b1: all 61 writer tests and the workspace all-targets check passed. Coverage includes Ctrl/Cmd+G dispatch, F3 repeat search, page-key navigation, destination-page insertion, invalid/empty input, cancellation, fullscreen preservation and blank recto padding. A fullscreen Go to Page snapshot at page 10 of a 19-page demo was visually inspected: one temporary prompt row and a page/total status. Blank or generated-only pages preserve the prior insertion point while showing the requested physical page."
     state verified

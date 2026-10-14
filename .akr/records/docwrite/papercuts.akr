@@ -84,6 +84,17 @@ record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 : paperc
     created_at 2026-09-24
 }
 
+record docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 : papercut {
+    title "cargo fmt -p docwrite-app also reformatted pre-existing unrelated…"
+    state verified
+    statement """
+        cargo fmt -p docwrite-app also reformatted pre-existing unrelated document_io.rs and footnotes.rs sections. Restored those formatting-only diffs to keep the autosave change focused.
+        """
+    observed_at git:82de1e924bf201d5416452e68e191bfa194f981a
+    author "codex"
+    created_at 2026-10-14
+}
+
 record docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 : papercut {
     title "Extracted reader initially inherited the writer workspace…"
     state superseded

@@ -1,5 +1,6 @@
 //! Editor behavior the window hosts: paging, snap, painting, and the latency budget.
 
+pub mod autosave;
 mod commands;
 mod document_io;
 mod map;
@@ -91,8 +92,9 @@ pub struct Editor {
     pressed_row: Option<usize>,
     bundle: Option<PathBuf>,
     dirty: bool,
-    /// When the last edit landed; autosave waits for typing to pause.
-    last_edit: Option<Instant>,
+    /// Last save or autosave attempt; typing does not restart this clock.
+    last_save_attempt: Instant,
+    autosave_request: Option<autosave::AutosaveInterval>,
     /// A background save is writing the bundle.
     saving: Arc<AtomicBool>,
     save_error: Arc<Mutex<Option<String>>>,
@@ -164,7 +166,8 @@ impl Editor {
             pressed_row: None,
             bundle: None,
             dirty: false,
-            last_edit: None,
+            last_save_attempt: Instant::now(),
+            autosave_request: None,
             saving: Arc::new(AtomicBool::new(false)),
             save_error: Arc::new(Mutex::new(None)),
             font_files: Vec::new(),
@@ -292,10 +295,12 @@ impl Editor {
     /// Bind autosave and snapshots to `path`. Typing does not write the bundle.
     pub fn open_bundle(&mut self, path: impl Into<PathBuf>) {
         self.bundle = Some(path.into());
+        self.last_save_attempt = Instant::now();
     }
 
     /// Write the bundle if an edit has landed since the last save.
     pub fn autosave(&mut self) -> Result<(), String> {
+        self.wait_for_background_save()?;
         let Some(path) = self.bundle.clone() else {
             return Err("no bundle".into());
         };
@@ -306,6 +311,7 @@ impl Editor {
             .save_bundle(&path)
             .map_err(|err| err.to_string())?;
         self.dirty = false;
+        self.last_save_attempt = Instant::now();
         Ok(())
     }
 

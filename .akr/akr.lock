@@ -2,10 +2,10 @@ akr-lock 0.1
 project lege-docwrite
 
 build {
-    tool "akr 0.5.1"
+    tool "akr 0.5.2"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:27de4cde4ca4a16910d5c56085c6d526a2c3cd2388b48139304745b08e71b346"
+    source_graph "sha256:90214f172e9fa36bed2e54fe85964753adcfb04423c4088db35e6b78727a3c71"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:d6855b263f895a14d30efd48cfc9fe8931a1dfe859b4a553fd8459d5c3554092"
-    records 60
+    hash "sha256:fbc47035ff267b4d66f9fcf22c20eb8d8e85f8c4799b679277557f28ec429750"
+    records 61
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:4fc69f20c0c089788f69b38d0e9fd7675176fcb2cc86626d556b2b76f10d941b"
-    records 23
+    hash "sha256:f3c71f4819a70f1fef1c75d3acb10bf01590fc6e59947328c42111a680fad4cd"
+    records 24
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:f22eea75caba6a7f14f39e6bfe2f0b10b47165b9110c84544012d14ea7346a70"
-    records 28
+    hash "sha256:b7b66403c749339018b19945cc23de6213c172b893ddc447701b909affb44e50"
+    records 29
 }
 
 source ".akr/records/lege/work.akr" {
@@ -526,6 +526,24 @@ resolution @docwrite.work.m7-pdf-links/1 {
     hash "sha256:86f4b48af279b33d1d47ea24d839c64b421a7cc2211bed1ca86a16e3a7802f27"
 }
 
+resolution @docwrite.work.writer-autosave-interval/1 {
+    slot implements
+    to @docwrite.req.minimal-writer-navigation/1
+    hash "sha256:41f8cfa36eef3b7de323775db95e13748b944294c24094a2d2f369909ea9184c"
+}
+
+resolution @docwrite.work.writer-autosave-interval/1 {
+    slot implements
+    to @docwrite.req.typing-latency/1
+    hash "sha256:2cf372c1652afabf76141fd6e6ed96be728653038c2237389f4fbdadc556ef47"
+}
+
+resolution @docwrite.work.writer-autosave-interval/1 {
+    slot part_of
+    to @docwrite.milestone.m6-writer-ready/1
+    hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
+}
+
 resolution @docwrite.work.writer-page-seek/1 {
     slot implements
     to @docwrite.req.exact-page-navigation/1
@@ -897,6 +915,11 @@ seal @docwrite.evidence.window-features-2026-09-24/1 {
     hash "sha256:30ba32c1105a18e1372561a6f7daf26162c3ebe0285a5c133239f79b209568ce"
 }
 
+seal @docwrite.evidence.writer-autosave-interval/1 {
+    state verified
+    hash "sha256:4e16d4c7c47a0a1c654548b45960deedc988fc4b0ecb4dd920e712e450c2ffc1"
+}
+
 seal @docwrite.evidence.writer-page-seek-behavior/1 {
     state verified
     hash "sha256:40b1f9f28e855ff9672c8a244497824abcdd41b9fa2b48dfd508c1d7394e3edb"
@@ -1162,6 +1185,11 @@ seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 {
     hash "sha256:d687c7017e8fe1e442afd6e79e1a6d59625c915660c55aff0923925650045c67"
 }
 
+seal @docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 {
+    state verified
+    hash "sha256:5d951208ff781b6d852ec1eda19f514fb384225493f4a26920436aceaa6c8255"
+}
+
 seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 {
     state superseded
     hash "sha256:01f3f5f86b17684d13638cf8a3bf38cc3d438f6beb889faea0e48234558f35d8"
@@ -1320,6 +1348,11 @@ seal @docwrite.work.m6-measured-footnotes/1 {
 seal @docwrite.work.m6-window-chapter-commands/1 {
     state completed
     hash "sha256:b513b70310688584eb0d2214da8da4529d6ab076776006e652b38ff51dc19551"
+}
+
+seal @docwrite.work.writer-autosave-interval/1 {
+    state completed
+    hash "sha256:3f2d71779255b1392a5826124cdf8f794d6abfc040d2e60fe1248167a694d065"
 }
 
 seal @docwrite.work.writer-page-seek/1 {

@@ -55,6 +55,7 @@ impl Editor {
         self.book.save_bundle(path).map_err(|err| err.to_string())?;
         self.bundle = Some(path.to_path_buf());
         self.dirty = false;
+        self.last_save_attempt = Instant::now();
         Ok(())
     }
 
@@ -99,7 +100,7 @@ impl Editor {
 
     /// Keep polling until a background save has reported success or failure.
     pub fn needs_save_tick(&self) -> bool {
-        self.dirty
+        (self.dirty && self.bundle.is_some())
             || self.saving.load(Ordering::Acquire)
             || self.save_error.lock().is_ok_and(|slot| slot.is_some())
     }
@@ -111,18 +112,26 @@ impl Editor {
             self.dirty = true;
             return Err(error);
         }
-        self.autosave()
+        self.autosave()?;
+        self.last_save_attempt = Instant::now();
+        Ok(())
     }
 
-    /// Start a background save when the book has been dirty and untouched
-    /// for `idle`. Serialization runs on its own thread against a copy of
-    /// the book, so typing never waits on the disk. Returns whether a save
-    /// started.
-    pub fn autosave_if_idle(&mut self, idle: Duration) -> bool {
+    /// Start a background save at the selected elapsed-time interval.
+    /// Continued typing does not postpone the deadline.
+    pub fn autosave_if_due(&mut self, interval: crate::autosave::AutosaveInterval) -> bool {
+        self.autosave_at(interval, Instant::now())
+    }
+
+    pub(crate) fn autosave_at(
+        &mut self,
+        interval: crate::autosave::AutosaveInterval,
+        now: Instant,
+    ) -> bool {
         if !self.dirty || self.saving.load(Ordering::Acquire) {
             return false;
         }
-        if self.last_edit.is_some_and(|last| last.elapsed() < idle) {
+        if now.saturating_duration_since(self.last_save_attempt) < interval.duration() {
             return false;
         }
         let Some(path) = self.bundle.clone() else {
@@ -132,16 +141,30 @@ impl Editor {
         let saving = self.saving.clone();
         let error = self.save_error.clone();
         saving.store(true, Ordering::Release);
-        self.dirty = false;
-        std::thread::spawn(move || {
-            if let Err(err) = copy.save_bundle(&path)
-                && let Ok(mut slot) = error.lock()
-            {
-                *slot = Some(err.to_string());
+        self.last_save_attempt = now;
+        let worker = std::thread::Builder::new()
+            .name("manuscript-autosave".into())
+            .spawn(move || {
+                if let Err(err) = copy.save_bundle(&path)
+                    && let Ok(mut slot) = error.lock()
+                {
+                    *slot = Some(err.to_string());
+                }
+                saving.store(false, Ordering::Release);
+            });
+        match worker {
+            Ok(_) => {
+                self.dirty = false;
+                true
             }
-            saving.store(false, Ordering::Release);
-        });
-        true
+            Err(err) => {
+                self.saving.store(false, Ordering::Release);
+                if let Ok(mut slot) = self.save_error.lock() {
+                    *slot = Some(err.to_string());
+                }
+                false
+            }
+        }
     }
 
     /// The error from the last background save, if it failed. Taking it
@@ -795,12 +818,11 @@ impl Editor {
     }
 
     /// Record an edit: the layout is stale, the view follows the caret, and
-    /// autosave waits for typing to pause.
+    /// autosave keeps its existing deadline.
     pub(crate) fn edited(&mut self) {
         self.dirty = true;
         self.layout_stale = true;
         self.follow_caret = true;
-        self.last_edit = Some(Instant::now());
     }
 }
 
