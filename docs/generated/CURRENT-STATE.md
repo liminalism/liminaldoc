@@ -228,6 +228,8 @@ boundaries and timings of the native bundle made through the window.
 
 **derived_from** `@docwrite.work.writer-200-page-exercise/1`
 
+> **Stale** — `watches "crates/docwrite-app/src/**"` was matched by `ef698d73`, which touched `crates/docwrite-app/src/lib.rs`. See [REVIEW-REQUIRED.md](REVIEW-REQUIRED.md#200-page-paste-works-fullscreen-scaling-and-page-counter-need-attention).
+
 ## Assessments
 
 _(none)_

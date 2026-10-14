@@ -7,7 +7,7 @@
 
 What should not be trusted without re-checking: records the build flagged `stale` or `at_risk`. Neither flag means a record is wrong (D-003); both mean look at it. This view is generated on every successful build, including one that exits 0 with a long queue (D-024). An empty file on an active project is more often a sign the `watches` globs are wrong than a sign the knowledge is perfect.
 
-## Stale (6)
+## Stale (7)
 
 ### Nothing in Lege-ecosystem shapes, breaks or hyphenates book text
 
@@ -44,6 +44,12 @@ What should not be trusted without re-checking: records the build flagged `stale
 `verified` · `@docwrite.observation.viewer-paging-is-line-continuity/3` · observation · **stale** · [lege-viewer pages by line continuity and snaps only on command](CURRENT-STATE.md#lege-viewer-pages-by-line-continuity-and-snaps-only-on-command)
 
 **Cause** — `watches "crates/liminal-reader/src/scroll/**"` was matched by `4e0773fa`, which touched `crates/liminal-reader/src/scroll/anchor.rs`.
+
+### 200-page paste works; fullscreen scaling and page counter need attention
+
+`verified` · `@docwrite.observation.writer-200-page-exercise/1` · observation · **stale** · [200-page paste works; fullscreen scaling and page counter need attention](CURRENT-STATE.md#200-page-paste-works-fullscreen-scaling-and-page-counter-need-attention)
+
+**Cause** — `watches "crates/docwrite-app/src/**"` was matched by `ef698d73`, which touched `crates/docwrite-app/src/lib.rs`.
 
 ## At risk (3)
 
