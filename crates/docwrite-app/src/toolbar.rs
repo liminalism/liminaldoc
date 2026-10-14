@@ -52,6 +52,8 @@ pub enum Action {
 /// What a prompt's text is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PromptKind {
+    /// A physical page number to navigate to.
+    GoToPage,
     /// The title of a new chapter.
     NewChapter,
     /// A new title for the caret's chapter.
@@ -81,6 +83,7 @@ pub enum PromptKind {
 impl PromptKind {
     fn label(self) -> &'static str {
         match self {
+            Self::GoToPage => "Go to page:",
             Self::NewChapter => "New chapter title:",
             Self::RenameChapter => "Rename chapter:",
             Self::Footnote => "Footnote:",
@@ -117,9 +120,9 @@ pub struct Button {
 }
 
 impl Editor {
-    /// Toolbar height in window pixels; zero in full screen.
+    /// Toolbar height in window pixels; fullscreen reserves only an open prompt.
     pub(crate) fn toolbar_height(&self) -> i32 {
-        if self.fullscreen {
+        if self.fullscreen && self.prompt.is_none() {
             0
         } else {
             self.toolbar_buttons(self.frame_width)
@@ -401,15 +404,24 @@ impl Editor {
     pub fn open_prompt(&mut self, kind: PromptKind) {
         // Prompts and footnote sessions never overlap: the caret goes home.
         self.end_footnote();
+        if kind == PromptKind::GoToPage {
+            self.refresh_layout();
+        }
         let text = match kind {
+            PromptKind::GoToPage => (self.pager.page_top() + 1)
+                .min(self.pager.pages())
+                .to_string(),
             PromptKind::RenameChapter => self.current_chapter_title().unwrap_or_default(),
             PromptKind::Find | PromptKind::Replace => self.last_find.clone().unwrap_or_default(),
             _ => String::new(),
         };
-        if self.fullscreen {
+        if self.fullscreen && kind != PromptKind::GoToPage {
             self.set_fullscreen(false);
         }
         self.prompt = Some(Prompt::new(kind, text));
+        if kind == PromptKind::GoToPage {
+            self.prompt_select_all();
+        }
     }
 
     /// The prompt being typed into, if any.
@@ -422,13 +434,21 @@ impl Editor {
         self.prompt.take().is_some()
     }
 
-    /// Act on the prompt's text and close it.
+    /// Act on the prompt's text. Invalid page numbers keep it open for correction.
     pub fn commit_prompt(&mut self) -> bool {
-        let Some(prompt) = self.prompt.take() else {
+        let Some(mut prompt) = self.prompt.take() else {
             return false;
         };
         let text = prompt.text.trim().to_string();
         match prompt.kind {
+            PromptKind::GoToPage => {
+                let page = text.parse::<u32>().ok();
+                if !page.is_some_and(|page| self.seek_page(page)) {
+                    prompt.error = Some(format!("Enter a page from 1 to {}:", self.pager.pages()));
+                    self.prompt = Some(prompt);
+                    self.prompt_select_all();
+                }
+            }
             PromptKind::NewChapter => {
                 let title = if text.is_empty() {
                     "Untitled".to_string()
@@ -675,17 +695,23 @@ impl Editor {
         let size = 14.0 * s;
         let baseline = (26.0 * s) as i32;
         if let Some(prompt) = self.prompt.clone() {
-            let label = prompt.kind.label();
+            let label = prompt.error.clone().unwrap_or_else(|| {
+                if prompt.kind == PromptKind::GoToPage {
+                    format!("Go to page (1–{}):", self.pager.pages())
+                } else {
+                    prompt.kind.label().to_string()
+                }
+            });
             self.paint_label(
                 painter,
                 face,
-                label,
+                &label,
                 left + (14.0 * s) as i32,
                 baseline,
                 size,
             );
             let label_w: f32 = face
-                .shape(label, size, &[])
+                .shape(&label, size, &[])
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
             let field_x = left + (22.0 * s) as i32 + label_w as i32;

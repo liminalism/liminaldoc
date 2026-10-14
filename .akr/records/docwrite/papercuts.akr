@@ -131,6 +131,17 @@ record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut
     created_at 2026-10-14
 }
 
+record docwrite.papercut.the-page-seek-regression-assumed-a-long-single/1 : papercut {
+    title "The page-seek regression assumed a long single-paragraph fixture had…"
+    state verified
+    statement """
+        The page-seek regression assumed a long single-paragraph fixture had editable text on its opener, but the opener contained only a generated title. Added a short opening paragraph for editable-page assertions; blank/generated-page behavior is covered separately.
+        """
+    observed_at git:c1e92b1a64922f7d058a1969b5b4d271922f3121
+    author "codex"
+    created_at 2026-10-14
+}
+
 record docwrite.papercut.the-prompt-regression-initially-assumed-chapter/1 : papercut {
     title "The prompt regression initially assumed chapter rename participates in…"
     state verified

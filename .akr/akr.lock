@@ -5,7 +5,7 @@ build {
     tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:3aaa51964006ab33d0b17c8087adfd67aa6280a0190e4e2b310e2058666281a9"
+    source_graph "sha256:27de4cde4ca4a16910d5c56085c6d526a2c3cd2388b48139304745b08e71b346"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:3bb5da31ac945ad09f66a96ec2d78d4020f686229c067850285744c143653691"
-    records 58
+    hash "sha256:d6855b263f895a14d30efd48cfc9fe8931a1dfe859b4a553fd8459d5c3554092"
+    records 60
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -34,18 +34,18 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:8b66f70e045c18263901dd3a4e54b92769c39bd1dd5727336a74675612b4a260"
-    records 22
+    hash "sha256:4fc69f20c0c089788f69b38d0e9fd7675176fcb2cc86626d556b2b76f10d941b"
+    records 23
 }
 
 source ".akr/records/docwrite/requirements.akr" {
-    hash "sha256:b4482b16c0e4f73bf83bc20b30e0f75fc03731c2515a9252d4102f35fce7ef5f"
-    records 2
+    hash "sha256:fcba75c0c9943c0de201344c984d6c37ec48f655206221a44fde9d2e73a6a9a9"
+    records 3
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:bdd8b8ff4adf837ca459571290b62342bc0026fb21e7df3643c468f5295a460e"
-    records 27
+    hash "sha256:f22eea75caba6a7f14f39e6bfe2f0b10b47165b9110c84544012d14ea7346a70"
+    records 28
 }
 
 source ".akr/records/lege/work.akr" {
@@ -526,6 +526,24 @@ resolution @docwrite.work.m7-pdf-links/1 {
     hash "sha256:86f4b48af279b33d1d47ea24d839c64b421a7cc2211bed1ca86a16e3a7802f27"
 }
 
+resolution @docwrite.work.writer-page-seek/1 {
+    slot implements
+    to @docwrite.req.exact-page-navigation/1
+    hash "sha256:d438de772e82a96e5ab9d53a14aae3cdd8c1602c86a309098e5442268db9ac82"
+}
+
+resolution @docwrite.work.writer-page-seek/1 {
+    slot implements
+    to @docwrite.req.minimal-writer-navigation/1
+    hash "sha256:41f8cfa36eef3b7de323775db95e13748b944294c24094a2d2f369909ea9184c"
+}
+
+resolution @docwrite.work.writer-page-seek/1 {
+    slot part_of
+    to @docwrite.milestone.m6-writer-ready/1
+    hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
+}
+
 resolution @docwrite.work.writer-prompt-editing/1 {
     slot part_of
     to @docwrite.milestone.m6-writer-ready/1
@@ -879,6 +897,16 @@ seal @docwrite.evidence.window-features-2026-09-24/1 {
     hash "sha256:30ba32c1105a18e1372561a6f7daf26162c3ebe0285a5c133239f79b209568ce"
 }
 
+seal @docwrite.evidence.writer-page-seek-behavior/1 {
+    state verified
+    hash "sha256:40b1f9f28e855ff9672c8a244497824abcdd41b9fa2b48dfd508c1d7394e3edb"
+}
+
+seal @docwrite.evidence.writer-page-seek-latency/1 {
+    state verified
+    hash "sha256:ec5b13348880a887a30d90d0560ac8146f625e08f274ea597714d51244024253"
+}
+
 seal @docwrite.evidence.writer-prompt-editing/1 {
     state verified
     hash "sha256:f8fc1438ac780c17547ef3847d47a31bdacee60b9eaec12ebf3c575552d32a3f"
@@ -1154,6 +1182,11 @@ seal @docwrite.papercut.starting-writer-work-tried-akr-context-key/1 {
     hash "sha256:7d7255500e3e68fc22a2ee22dc22a311a32f4fd8eb51841fb247dfe428bf05fa"
 }
 
+seal @docwrite.papercut.the-page-seek-regression-assumed-a-long-single/1 {
+    state verified
+    hash "sha256:ed5dcccb46700ba660e7abb0274a2863f616702c6c79b2b3da643abcd1f9f15e"
+}
+
 seal @docwrite.papercut.the-prompt-regression-initially-assumed-chapter/1 {
     state verified
     hash "sha256:7927daaa1dec4b3647b5eddf9f68625560e30c6c984787ad8a62bd0f53ad8664"
@@ -1287,6 +1320,11 @@ seal @docwrite.work.m6-measured-footnotes/1 {
 seal @docwrite.work.m6-window-chapter-commands/1 {
     state completed
     hash "sha256:b513b70310688584eb0d2214da8da4529d6ab076776006e652b38ff51dc19551"
+}
+
+seal @docwrite.work.writer-page-seek/1 {
+    state completed
+    hash "sha256:019dba7c447d521d7f42b5c231d824948ce29a9ee5dc25abee3db69fcc7495de"
 }
 
 seal @docwrite.work.writer-prompt-editing/1 {

@@ -450,9 +450,10 @@ impl EditorApp {
             "KeyB" if alt => self.tabs.open_prompt(PromptKind::BibliographyEntry),
             "KeyF" if shift => self.tabs.toggle_fullscreen(),
             "KeyF" => self.tabs.open_prompt(PromptKind::Find),
-            "KeyG" => {
+            "KeyG" if shift => {
                 self.tabs.find_again();
             }
+            "KeyG" => self.tabs.open_prompt(PromptKind::GoToPage),
             "Backslash" => self.tabs.toggle_sidebar(),
             digit if alt && digit.starts_with("Digit") => {
                 if let Ok(number) = digit.trim_start_matches("Digit").parse::<usize>() {
@@ -743,6 +744,9 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         };
         match event.key {
             KeyInput::Function(11) => self.tabs.toggle_fullscreen(),
+            KeyInput::Function(3) => {
+                self.tabs.find_again();
+            }
             KeyInput::Escape if self.tabs.is_fullscreen() => self.tabs.set_fullscreen(false),
             KeyInput::Left if word => self.tabs.move_word(false, shift),
             KeyInput::Right if word => self.tabs.move_word(true, shift),
@@ -985,6 +989,66 @@ mod input_tests {
         );
         send(&mut app, KeyInput::Enter, "Enter", Modifiers::default());
         assert_eq!(app.tabs.book().parts()[0].chapters()[0].title(), "新し章");
+        assert!(app.tabs.prompt().is_none());
+    }
+
+    #[test]
+    fn page_seek_shortcut_and_page_keys_navigate_the_active_manuscript() {
+        let mut app = app();
+        app.tabs
+            .type_text(&"A long article needs simple navigation. ".repeat(900));
+        app.tabs.refresh_layout();
+        app.tabs.seek_page(1);
+        let text = app.tabs.book().plain_text();
+        app.on_key_event(&KeyEvent {
+            key: KeyInput::Character('g'),
+            text: "g".into(),
+            physical: "KeyG".into(),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers {
+                control: true,
+                logo: true,
+                ..Modifiers::default()
+            },
+        });
+        assert_eq!(app.tabs.prompt().unwrap().kind, PromptKind::GoToPage);
+        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("3".into()));
+        for (key, expected) in [
+            (KeyInput::Enter, 2.0),
+            (KeyInput::PageDown, 3.0),
+            (KeyInput::PageUp, 2.0),
+        ] {
+            app.on_key_event(&KeyEvent {
+                key,
+                text: String::new(),
+                physical: String::new(),
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            });
+            app.tabs.refresh_layout();
+            assert_eq!(app.tabs.pager().scroll(), expected);
+        }
+        assert_eq!(app.tabs.book().plain_text(), text);
+        assert!(app.tabs.prompt().is_none());
+    }
+
+    #[test]
+    fn f3_repeats_find_without_opening_page_seek() {
+        let mut app = app();
+        app.tabs.type_text("needle and another needle");
+        assert!(app.tabs.find("needle"));
+        let first = app.tabs.book().selection();
+        app.on_key_event(&KeyEvent {
+            key: KeyInput::Function(3),
+            text: String::new(),
+            physical: "F3".into(),
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        });
+        assert_ne!(app.tabs.book().selection(), first);
         assert!(app.tabs.prompt().is_none());
     }
 

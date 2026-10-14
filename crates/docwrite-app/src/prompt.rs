@@ -25,6 +25,8 @@ pub struct Prompt {
     pub kind: PromptKind,
     /// The text typed so far.
     pub text: String,
+    /// Validation feedback, cleared by the next edit.
+    pub error: Option<String>,
     anchor: usize,
     caret: usize,
 }
@@ -35,6 +37,7 @@ impl Prompt {
         Self {
             kind,
             text,
+            error: None,
             anchor: caret,
             caret,
         }
@@ -68,6 +71,7 @@ impl Prompt {
     }
 
     fn replace(&mut self, text: &str) {
+        self.error = None;
         let range = self.selection();
         let end = range.start + text.len();
         self.text.replace_range(range, text);

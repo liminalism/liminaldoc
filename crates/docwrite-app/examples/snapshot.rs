@@ -1,5 +1,5 @@
 //! Paint the editor without a window and save the frame as a PNG:
-//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT] [--prompt TEXT]`
+//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT] [--prompt TEXT] [--go-to-page]`
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -71,6 +71,9 @@ fn main() {
         editor.open_prompt(docwrite_app::PromptKind::RenameChapter);
         editor.prompt_select_all();
         editor.prompt_type(text);
+    }
+    if args.iter().any(|arg| arg == "--go-to-page") {
+        editor.open_prompt(docwrite_app::PromptKind::GoToPage);
     }
     editor.paint(&mut frame);
     pixelkit_raster::png::write(out.as_str(), &frame).expect("write png");

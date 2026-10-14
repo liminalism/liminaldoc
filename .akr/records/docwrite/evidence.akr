@@ -699,6 +699,32 @@ record docwrite.evidence.window-features-2026-09-24/1 : evidence {
         """
 }
 
+record docwrite.evidence.writer-page-seek-behavior/1 : evidence {
+    title "Working tree based on c1e92b1: all 61 writer tests and the workspace all-targets check passed. Coverage includes Ctrl/Cmd+G dispatch, F3 repeat search, page-key navigation, destination-page insertion, invalid/empty input, cancellation, fullscreen preservation and blank recto padding. A fullscreen Go to Page snapshot at page 10 of a 19-page demo was visually inspected: one temporary prompt row and a page/total status. Blank or generated-only pages preserve the prior insertion point while showing the requested physical page."
+    state verified
+    result pass
+    method command
+    observed_at git:c1e92b1a64922f7d058a1969b5b4d271922f3121
+    command "cargo test -p docwrite-app; cargo check --workspace --all-targets"
+    summary """
+        Working tree based on c1e92b1: all 61 writer tests and the workspace all-targets check passed. Coverage includes Ctrl/Cmd+G dispatch, F3 repeat search, page-key navigation, destination-page insertion, invalid/empty input, cancellation, fullscreen preservation and blank recto padding. A fullscreen Go to Page snapshot at page 10 of a 19-page demo was visually inspected: one temporary prompt row and a page/total status. Blank or generated-only pages preserve the prior insertion point while showing the requested physical page.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.writer-page-seek-latency/1 : evidence {
+    title "Final optimized run on the working tree based on c1e92b1: all 3 latency tests passed. On a 550-page manuscript, seek/Page Up/Page Down plus buffer painting took median 1.374031 ms and maximum 1.501094 ms over 18 operations, with zero additional layout passes. The typing gate measured median 3.418249 ms and maximum 4.292147 ms; initial layout/paint took 107.453732 ms. These are in-process input-to-buffer timings, not physical display latency."
+    state verified
+    result pass
+    method command
+    observed_at git:c1e92b1a64922f7d058a1969b5b4d271922f3121
+    command "cargo test --release -p docwrite-app --test latency_gate -- --nocapture"
+    summary """
+        Final optimized run on the working tree based on c1e92b1: all 3 latency tests passed. On a 550-page manuscript, seek/Page Up/Page Down plus buffer painting took median 1.374031 ms and maximum 1.501094 ms over 18 operations, with zero additional layout passes. The typing gate measured median 3.418249 ms and maximum 4.292147 ms; initial layout/paint took 107.453732 ms. These are in-process input-to-buffer timings, not physical display latency.
+        """
+    author "dk"
+}
+
 record docwrite.evidence.writer-prompt-editing/1 : evidence {
     title "Working tree based on 43805ac: all 55 writer tests passed. After suppressing the manuscript caret during prompts, all 12 prompt/toolbar/research tests and the workspace all-targets check passed. Regressions cover middle insertion, Shift selection, Home/End, Delete, combining marks, emoji/flags, cut/paste text operations, Select All keyboard routing, IME replacement, commit/cancel isolation, and long-input caret/selection pixels at scales 1 and 1.5. A long chapter-title snapshot was inspected for clipping and caret visibility. Native OS clipboard exchange and the full manual M6 workflow were not exercised."
     state verified

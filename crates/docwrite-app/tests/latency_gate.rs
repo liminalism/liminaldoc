@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use docwrite_app::{Editor, InputTrace, KEYPRESS_BUDGET, Pager, Phase, TraceCommand};
+use docwrite_app::{Editor, InputTrace, KEYPRESS_BUDGET, Pager, Phase, PromptKind, TraceCommand};
 use docwrite_model::{Book, ChapterStart, Position, Selection};
 use docwrite_typeset::{Face, book_of_repeated_line};
 
@@ -159,6 +159,48 @@ fn typing_into_the_editor_stays_inside_the_budget() {
         assert!(
             max <= KEYPRESS_BUDGET,
             "keypress-to-present max {max:?}, budget {KEYPRESS_BUDGET:?}"
+        );
+    }
+}
+
+#[test]
+fn seeking_and_paging_a_long_book_reuse_layout_inside_the_budget() {
+    let mut editor = Editor::with_book(long_book());
+    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    editor.paint(&mut frame);
+    let pages = editor.pager().pages();
+    assert!(pages >= 450);
+    let generation = editor.layout_generation();
+    let mut latencies = Vec::new();
+    for page in [1, pages / 2, pages, 2, pages - 1, pages / 3] {
+        editor.open_prompt(PromptKind::GoToPage);
+        editor.prompt_type(&page.to_string());
+        let started = Instant::now();
+        editor.commit_prompt();
+        editor.paint(&mut frame);
+        latencies.push(started.elapsed());
+        assert_eq!(editor.pager().scroll(), f64::from(page - 1));
+        assert!(editor.caret_area().is_some());
+        for down in [true, false] {
+            let started = Instant::now();
+            editor.page(down, false);
+            editor.paint(&mut frame);
+            latencies.push(started.elapsed());
+        }
+        assert_eq!(
+            editor.layout_generation(),
+            generation,
+            "navigation must not repaginate"
+        );
+    }
+    latencies.sort();
+    let p50 = latencies[latencies.len() / 2];
+    let max = latencies[latencies.len() - 1];
+    println!("{pages} pages: seek/page-and-paint p50 {p50:?}, max {max:?}; no layout passes");
+    if !cfg!(debug_assertions) {
+        assert!(
+            max <= KEYPRESS_BUDGET,
+            "navigation max {max:?}, budget {KEYPRESS_BUDGET:?}"
         );
     }
 }

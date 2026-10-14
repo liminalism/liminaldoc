@@ -16,6 +16,19 @@ Build the whole workspace before running the launcher: it expects `liminaldoc-re
 
 The reader keeps its Lege rendering, navigation, search, selection and processing code. The writer keeps editable document tabs, native file dialogs, `.legebook` persistence and PDF/DOCX/Markdown/text output. Opening a PDF from the writer starts a reader window on demand. A shared-window mixed PDF/manuscript tab host is still pending; the separate backends preserve both experiences during the extraction.
 
+## Writing and navigation
+
+The writer prioritizes a minimal, terminal-like appearance and low latency for
+books and large articles. Page Up and Page Down turn physical pages. Ctrl+G
+(Cmd+G on macOS) opens a small **Go to page** prompt: enter a page number and
+press Enter, or Escape to cancel. The prompt also works in fullscreen (F11).
+Pages are numbered from 1 in document order, including blank pages. Seeking
+places the caret at the first editable line when the page has manuscript text;
+blank and generated pages are shown without moving the insertion point.
+
+Ctrl+F opens Find; F3 or Ctrl+Shift+G repeats the search (use Cmd instead of Ctrl
+on macOS). Navigation reuses the current layout and does not re-typeset the book.
+
 ## Repository dependencies
 
 The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration but are excluded from its Cargo workspace; its `cargo viewer` and `cargo docwrite` aliases point here. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.

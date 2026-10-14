@@ -188,8 +188,7 @@ impl Editor {
                 .get(index)
                 .and_then(|def| load_family_def(def).map(|loaded| (def.name, loaded)));
             if let Some((name, loaded)) = loaded {
-                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) =
-                    loaded.into_iter().unzip();
+                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) = loaded.into_iter().unzip();
                 self.faces = faces;
                 self.font_files = font_files;
                 self.family_index = index;
@@ -386,9 +385,12 @@ impl Editor {
         self.paint_label(painter, face, &title, (16.0 * s) as i32, baseline, size);
         let status = match self.caret_status {
             Some((page, line, pos)) => {
-                format!("Doc 1  Pg {page}  Ln {line:.2}\"  Pos {pos:.2}\"")
+                format!(
+                    "Pg {page}/{}  Ln {line:.2}\"  Pos {pos:.2}\"",
+                    self.pager.pages()
+                )
             }
-            None => format!("Doc 1  Pg {}", self.pager.page_top() + 1),
+            None => format!("Pg {}/{}", self.pager.page_top() + 1, self.pager.pages()),
         };
         let text_width: f32 = face
             .shape(&status, size, &[])

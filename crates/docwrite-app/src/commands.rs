@@ -320,11 +320,42 @@ impl Editor {
         } else {
             index.min(lines.len() - 1)
         };
-        let line = &lines[index];
-        let byte = byte_at_x(line, x - line.indent, self.paragraph_len(line.paragraph));
-        if let Some(position) = self.position_of(line.paragraph, byte) {
+        // Chapter titles and generated headings are not editable blocks. Pick
+        // the next editable line, then look back if the page ends in metadata.
+        let position = lines[index..]
+            .iter()
+            .chain(lines[..index].iter().rev())
+            .find_map(|line| {
+                let byte = byte_at_x(line, x - line.indent, self.paragraph_len(line.paragraph));
+                self.position_of(line.paragraph, byte)
+            });
+        if let Some(position) = position {
             self.set_focus(position, extend);
         }
+    }
+
+    /// Seek to a physical page (1-based), moving the caret to its first editable
+    /// line. Generated or blank pages retain the selection but still show that
+    /// exact page. Invalid numbers leave the view and selection unchanged.
+    pub fn seek_page(&mut self, page: u32) -> bool {
+        self.refresh_layout();
+        if page == 0 || page > self.pager.pages() {
+            return false;
+        }
+        self.abandon_footnote();
+        let position = self.document.as_ref().and_then(|document| {
+            document
+                .page_painted_lines(page)
+                .iter()
+                .find_map(|line| self.position_of(line.paragraph, line_start(line)))
+        });
+        if let Some(position) = position {
+            self.set_focus(position, false);
+        }
+        // Seeking is a viewport command even when the page has no editable text.
+        self.follow_caret = false;
+        self.pager.jump_to(page - 1);
+        true
     }
 
     /// Put the caret at a window point on a page, as a click does.
@@ -554,9 +585,7 @@ impl Editor {
         let existing = self.book.block(block).ok().and_then(|body| body.note());
         let (note, cursor) = match existing {
             Some(id) => match self.book.note(id) {
-                Ok(note) if note.kind() == NoteKind::Footnote => {
-                    (id, note.text().chars().count())
-                }
+                Ok(note) if note.kind() == NoteKind::Footnote => (id, note.text().chars().count()),
                 _ => return false,
             },
             None => match self.book.attach_note(NoteKind::Footnote, "") {
@@ -803,7 +832,11 @@ fn footnote_cursor_in_lines(
     let body_chars: Vec<char> = body.chars().collect();
     let mut consumed = 0usize;
     for (position, (index, line)) in lines.iter().enumerate() {
-        if position > 0 && body_chars.get(consumed).is_some_and(|ch| ch.is_whitespace()) {
+        if position > 0
+            && body_chars
+                .get(consumed)
+                .is_some_and(|ch| ch.is_whitespace())
+        {
             consumed += 1;
         }
         let line_chars = line.text.chars().count();

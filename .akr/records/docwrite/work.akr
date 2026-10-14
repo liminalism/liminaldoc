@@ -341,6 +341,40 @@ record docwrite.work.spellcheck-optional/1 : work {
     author "dk"
 }
 
+record docwrite.work.writer-page-seek/1 : work {
+    title "Seek by page number and keep long-book paging predictable"
+    state completed
+    intent """
+        Add a compact Go to Page prompt on Ctrl/Cmd+G with physical page numbers,
+        range validation, Enter to navigate and Escape to cancel. Retain fullscreen
+        while seeking. Move the caret to editable text on the requested page so
+        typing does not return to the old location. Keep Page Up/Down and search
+        repeat available. Exercise cached navigation on a roughly 500-page book;
+        add no new viewing mode or persistent toolbar control.
+        """
+    acceptance {
+        check cached {
+            statement """
+                Page seek and Page Up/Down on a roughly 500-page manuscript reuse its existing layout; optimized navigation and paint are measured against the frame budget.
+                """
+            method command
+            command "cargo test --release -p docwrite-app --test latency_gate -- --nocapture"
+            verified_by [ @docwrite.evidence.writer-page-seek-latency/1 ]
+        }
+        check navigation {
+            statement """
+                Go to Page validates physical page numbers, preserves fullscreen and manuscript text, and places the caret on an editable destination. Page Up/Down and repeat search remain keyboard-accessible.
+                """
+            method command
+            command "cargo test -p docwrite-app"
+            verified_by [ @docwrite.evidence.writer-page-seek-behavior/1 ]
+        }
+    }
+    implements [ @docwrite.req.exact-page-navigation, @docwrite.req.minimal-writer-navigation ]
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}
+
 record docwrite.work.writer-prompt-editing/1 : work {
     title "Edit chapter names and search prompts with normal text controls"
     state completed

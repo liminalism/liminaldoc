@@ -2,8 +2,125 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use docwrite_app::{Editor, Pager, Phase};
+use docwrite_app::{Editor, Pager, Phase, PromptKind};
 use docwrite_model::{Position, Selection};
+
+fn manuscript() -> Editor {
+    let mut editor = Editor::new_document("Long article");
+    editor.type_text("An opening paragraph.\n");
+    editor.type_text(&"A paragraph long enough to occupy several lines on the page. ".repeat(600));
+    editor.refresh_layout();
+    assert!(editor.pager().pages() >= 5);
+    editor
+}
+
+fn caret_page(editor: &Editor) -> u32 {
+    let focus = editor.book().selection().focus;
+    let document = editor.document().unwrap();
+    let paragraph = document.paragraph_of(focus.block.raw()).unwrap();
+    let text = editor.book().block(focus.block).unwrap().text();
+    let byte = text.chars().take(focus.offset).map(char::len_utf8).sum();
+    document.page_of(paragraph, byte).unwrap()
+}
+
+#[test]
+fn seeking_then_typing_edits_the_destination_page_and_reuses_layout() {
+    let mut editor = manuscript();
+    let generation = editor.layout_generation();
+    for page in [1, 4, 2, editor.pager().pages()] {
+        let before = editor.book().plain_text();
+        assert!(editor.seek_page(page));
+        editor.refresh_layout();
+        assert_eq!(editor.pager().scroll(), f64::from(page - 1));
+        assert_eq!(caret_page(&editor), page);
+        assert_eq!(editor.book().plain_text(), before);
+        assert_eq!(editor.layout_generation(), generation);
+    }
+    assert!(editor.seek_page(3));
+    let selection = editor.book().selection();
+    editor.type_text("HERE ");
+    let text = editor.book().block(selection.focus.block).unwrap().text();
+    assert!(
+        text.chars()
+            .skip(selection.focus.offset)
+            .collect::<String>()
+            .starts_with("HERE ")
+    );
+    editor.refresh_layout();
+    assert_eq!(caret_page(&editor), 3);
+    assert_eq!(editor.pager().scroll(), 2.0);
+}
+
+#[test]
+fn page_prompt_validates_and_cancels_without_leaving_fullscreen() {
+    let mut editor = manuscript();
+    editor.seek_page(2);
+    editor.set_fullscreen(true);
+    editor.poll_fullscreen();
+    editor.open_prompt(PromptKind::GoToPage);
+    assert_eq!(editor.prompt_selected_text().as_deref(), Some("2"));
+    let original = editor.book().selection();
+    let text = editor.book().plain_text();
+    for invalid in ["0", "99999999999999", "-1", "2.5", "no"] {
+        editor.prompt_type(invalid);
+        editor.commit_prompt();
+        assert!(editor.prompt().unwrap().error.is_some());
+        assert_eq!(editor.prompt_selected_text().as_deref(), Some(invalid));
+        assert_eq!(editor.book().selection(), original);
+        assert_eq!(editor.pager().scroll(), 1.0);
+    }
+    editor.prompt_backspace();
+    editor.commit_prompt();
+    assert!(
+        editor.prompt().unwrap().error.is_some(),
+        "empty input stays open"
+    );
+    editor.prompt_type("4");
+    assert!(editor.prompt().unwrap().error.is_none());
+    let mut frame = pixelkit_raster::WindowBuffer::new(900, 700);
+    editor.paint(&mut frame);
+    assert!(editor.is_fullscreen());
+    assert!(editor.poll_fullscreen().is_none());
+    assert!(
+        editor.caret_area().unwrap().y < 34.0,
+        "prompt caret is visible"
+    );
+    editor.commit_prompt();
+    editor.paint(&mut frame);
+    assert!(editor.prompt().is_none());
+    assert_eq!(editor.pager().scroll(), 3.0);
+    assert_eq!(caret_page(&editor), 4);
+    assert!(editor.is_fullscreen());
+    editor.open_prompt(PromptKind::GoToPage);
+    editor.prompt_type("1");
+    editor.cancel_prompt();
+    assert_eq!(editor.pager().scroll(), 3.0);
+    assert_eq!(editor.book().plain_text(), text);
+}
+
+#[test]
+fn seek_shows_blank_recto_padding_without_bouncing_to_the_old_caret() {
+    let mut editor = Editor::new_document("Blank verso");
+    editor.type_text("First chapter");
+    editor.new_chapter("Second");
+    editor.type_text("Second chapter");
+    editor.refresh_layout();
+    assert_eq!(editor.pager().pages(), 3);
+    assert!(editor.seek_page(2));
+    editor.refresh_layout();
+    assert_eq!(editor.pager().scroll(), 1.0);
+    assert!(editor.document().unwrap().page_painted_lines(2).is_empty());
+    editor.page_down();
+    editor.refresh_layout();
+    assert_eq!(editor.pager().scroll(), 2.0);
+    assert_eq!(caret_page(&editor), 3);
+    assert!(editor.seek_page(3));
+    assert_eq!(
+        caret_page(&editor),
+        3,
+        "chapter title is skipped for editable body"
+    );
+}
 
 #[test]
 fn page_down_and_page_up_land_on_page_tops_from_any_scroll() {

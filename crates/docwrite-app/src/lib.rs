@@ -20,8 +20,8 @@ use commands::PageSlot;
 
 pub use map::{BookMap, MapKind, MapRow, SIDEBAR_W};
 pub use nav::{Pager, Phase};
-pub use research::SourceAction;
 pub use prompt::{Prompt, PromptMotion};
+pub use research::SourceAction;
 pub use toolbar::{Action, Button, PromptKind, TOOLBAR_H};
 pub use trace::{FrameMetrics, InputTrace, ReplayStep, TraceCommand};
 use view::Sidebar;
@@ -82,6 +82,7 @@ pub struct Editor {
     /// Set by an edit: the next layout refresh scrolls to the caret's page.
     follow_caret: bool,
     last_layout: Option<EditReport>,
+    layout_generation: u64,
     atlas: GlyphAtlas,
     preedit: String,
     caret: Option<CaretRect>,
@@ -154,6 +155,7 @@ impl Editor {
             layout_stale: true,
             follow_caret: false,
             last_layout: None,
+            layout_generation: 0,
             atlas: GlyphAtlas::new(),
             preedit: String::new(),
             caret: None,
@@ -589,6 +591,9 @@ impl Editor {
         if self.fullscreen {
             if let Some(face) = face {
                 self.paint_status_line(&mut painter, face, width, height);
+                if self.prompt.is_some() {
+                    self.paint_toolbar(&mut painter, face, width, self.pages_painted);
+                }
             }
         } else {
             if let Some(face) = face {
@@ -618,8 +623,7 @@ impl Editor {
             if let Some(def) = defs.get(index)
                 && let Some(loaded) = load_family_def(def)
             {
-                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) =
-                    loaded.into_iter().unzip();
+                let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) = loaded.into_iter().unzip();
                 self.faces = faces;
                 self.font_files = font_files;
                 self.family_index = index;
@@ -638,6 +642,7 @@ impl Editor {
             self.follow_caret_now();
             return;
         }
+        self.layout_generation += 1;
         let report = match self.document.as_mut() {
             Some(document) => update_from_book(document, &self.book).ok(),
             None => None,
@@ -698,6 +703,11 @@ impl Editor {
     /// What the most recent layout refresh did.
     pub fn last_layout(&self) -> Option<&EditReport> {
         self.last_layout.as_ref()
+    }
+
+    /// Number of layout passes, excluding navigation and repaint of cached pages.
+    pub fn layout_generation(&self) -> u64 {
+        self.layout_generation
     }
 
     /// The laid-out book, as of the last paint or [`Self::refresh_layout`].
@@ -1259,7 +1269,12 @@ pub(crate) fn family_defs() -> Vec<FamilyDef> {
             } else {
                 "Times New Roman"
             },
-            files: [file(""), file(" Bold"), file(" Italic"), file(" Bold Italic")],
+            files: [
+                file(""),
+                file(" Bold"),
+                file(" Italic"),
+                file(" Bold Italic"),
+            ],
         });
     }
     let mut roots = vec![std::path::PathBuf::from("/usr/share/fonts")];
@@ -1308,7 +1323,12 @@ pub(crate) fn family_defs() -> Vec<FamilyDef> {
         (
             "Lato",
             "truetype/lato",
-            ["Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"],
+            [
+                "Lato-Regular",
+                "Lato-Bold",
+                "Lato-Italic",
+                "Lato-BoldItalic",
+            ],
         ),
     ] {
         let [regular, bold, italic, bold_italic] = stems;

@@ -15,6 +15,21 @@ record docwrite.req.exact-page-navigation/1 : requirement {
         """
 }
 
+record docwrite.req.minimal-writer-navigation/1 : requirement {
+    title "Minimal appearance and direct navigation for long-form writing"
+    state proposed
+    scope [ all ]
+    statement """
+        The writer should look barebones and terminalesque and prioritize low latency
+        for books and large articles. Page Up, Page Down and seek by page number are
+        sufficient navigation for the current work. Do not introduce novel or
+        unnecessary viewing modes or navigation chrome. Navigation should reuse
+        the laid-out manuscript and remain predictable on long documents.
+        """
+    rationale "User direction on 2026-10-14; narrows current implementation priorities without requiring removal of already-existing views."
+    author "dk"
+}
+
 record docwrite.req.typing-latency/1 : requirement {
     title "Typing never waits on work unrelated to the edited paragraph"
     state proposed
