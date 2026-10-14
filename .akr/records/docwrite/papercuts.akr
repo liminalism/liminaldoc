@@ -131,6 +131,17 @@ record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut
     created_at 2026-10-14
 }
 
+record docwrite.papercut.the-prompt-regression-initially-assumed-chapter/1 : papercut {
+    title "The prompt regression initially assumed chapter rename participates in…"
+    state verified
+    statement """
+        The prompt regression initially assumed chapter rename participates in Undo, but the existing model rename is not an edit transaction. Corrected the test to cover commit/cancel semantics; undoable chapter metadata remains a separate writer gap.
+        """
+    observed_at git:43805ac4a7cfa09081ca54d542b242ffaf86278e
+    author "codex"
+    created_at 2026-10-14
+}
+
 record docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 : papercut {
     title "The repository-local rfd fork builds for Docwrite but emits 51 macOS…"
     state verified
@@ -174,6 +185,17 @@ record docwrite.papercut.while-correcting-a-proposed-pdf-tab-work-record/1 : pap
     about "akr"
     author "codex"
     created_at 2026-09-24
+}
+
+record docwrite.papercut.while-inspecting-prompt-navigation-a/1 : papercut {
+    title "While inspecting prompt navigation, a speculative read of…"
+    state verified
+    statement """
+        While inspecting prompt navigation, a speculative read of docwrite-model/src/selection.rs missed; Motion and Direction are defined in edit.rs. The identifier search supplied the correct path.
+        """
+    observed_at git:43805ac4a7cfa09081ca54d542b242ffaf86278e
+    author "codex"
+    created_at 2026-10-14
 }
 
 record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 : papercut {

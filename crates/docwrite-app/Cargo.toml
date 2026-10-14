@@ -18,6 +18,7 @@ path = "src/main.rs"
 docwrite-model = { workspace = true }
 docwrite-typeset = { workspace = true }
 docwrite-export = { workspace = true }
+unicode-segmentation = { workspace = true }
 pixelkit-raster = { workspace = true }
 lege-pdf-read = { workspace = true }
 pixelkit-shell = { workspace = true }

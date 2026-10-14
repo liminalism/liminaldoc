@@ -699,6 +699,19 @@ record docwrite.evidence.window-features-2026-09-24/1 : evidence {
         """
 }
 
+record docwrite.evidence.writer-prompt-editing/1 : evidence {
+    title "Working tree based on 43805ac: all 55 writer tests passed. After suppressing the manuscript caret during prompts, all 12 prompt/toolbar/research tests and the workspace all-targets check passed. Regressions cover middle insertion, Shift selection, Home/End, Delete, combining marks, emoji/flags, cut/paste text operations, Select All keyboard routing, IME replacement, commit/cancel isolation, and long-input caret/selection pixels at scales 1 and 1.5. A long chapter-title snapshot was inspected for clipping and caret visibility. Native OS clipboard exchange and the full manual M6 workflow were not exercised."
+    state verified
+    result pass
+    method command
+    observed_at git:43805ac4a7cfa09081ca54d542b242ffaf86278e
+    command "cargo test -p docwrite-app; cargo test -p docwrite-app --test prompts --test toolbar --test research; cargo check --workspace --all-targets"
+    summary """
+        Working tree based on 43805ac: all 55 writer tests passed. After suppressing the manuscript caret during prompts, all 12 prompt/toolbar/research tests and the workspace all-targets check passed. Regressions cover middle insertion, Shift selection, Home/End, Delete, combining marks, emoji/flags, cut/paste text operations, Select All keyboard routing, IME replacement, commit/cancel isolation, and long-input caret/selection pixels at scales 1 and 1.5. A long chapter-title snapshot was inspected for clipping and caret visibility. Native OS clipboard exchange and the full manual M6 workflow were not exercised.
+        """
+    author "dk"
+}
+
 record docwrite.evidence.writer-responsiveness-suite/1 : evidence {
     title "37/37 debug suites green on working tree (model, typeset, export, app incl. new footnote/alignment/paging/font/docx tests)"
     state verified

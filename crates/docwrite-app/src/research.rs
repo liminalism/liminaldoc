@@ -206,9 +206,7 @@ impl Editor {
         }
         self.dirty = true;
         self.open_prompt(PromptKind::Citation);
-        if let Some(prompt) = self.prompt.as_mut() {
-            prompt.text = citation;
-        }
+        self.prompt_type(&citation);
         Some(id)
     }
 

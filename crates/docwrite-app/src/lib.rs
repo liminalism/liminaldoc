@@ -4,6 +4,7 @@ mod commands;
 mod document_io;
 mod map;
 mod nav;
+mod prompt;
 mod research;
 pub mod tabs;
 mod toolbar;
@@ -20,7 +21,8 @@ use commands::PageSlot;
 pub use map::{BookMap, MapKind, MapRow, SIDEBAR_W};
 pub use nav::{Pager, Phase};
 pub use research::SourceAction;
-pub use toolbar::{Action, Button, Prompt, PromptKind, TOOLBAR_H};
+pub use prompt::{Prompt, PromptMotion};
+pub use toolbar::{Action, Button, PromptKind, TOOLBAR_H};
 pub use trace::{FrameMetrics, InputTrace, ReplayStep, TraceCommand};
 use view::Sidebar;
 pub use view::{NIGHT, PAPER, PointerShape, SANZO_EARTH, SANZO_SEA, Theme, WARM, WORDPERFECT};
@@ -864,7 +866,7 @@ impl Editor {
                 pen += advance;
             }
         }
-        if saw_focus && self.footnote.is_none() {
+        if saw_focus && self.footnote.is_none() && self.prompt.is_none() {
             let height = (geometry.font_size * scale).max(1.0) as i32;
             if !self.preedit.is_empty() {
                 // The composition is drawn at the caret, underlined, and does

@@ -4,7 +4,7 @@
 use docwrite_model::{Align, BlockKind, Mark, NoteKind, Position, Selection};
 use docwrite_typeset::Face;
 
-use crate::Editor;
+use crate::{Editor, Prompt};
 
 /// Height of one toolbar row in logical pixels.
 pub const TOOLBAR_H: f32 = 34.0;
@@ -95,15 +95,6 @@ impl PromptKind {
             Self::ImportBibliography => "Import .bib or CSL JSON file:",
         }
     }
-}
-
-/// A one-line text entry shown in the toolbar.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Prompt {
-    /// What the text is for.
-    pub kind: PromptKind,
-    /// The text typed so far.
-    pub text: String,
 }
 
 /// A toolbar button in window pixels.
@@ -418,34 +409,12 @@ impl Editor {
         if self.fullscreen {
             self.set_fullscreen(false);
         }
-        self.prompt = Some(Prompt { kind, text });
+        self.prompt = Some(Prompt::new(kind, text));
     }
 
     /// The prompt being typed into, if any.
     pub fn prompt(&self) -> Option<&Prompt> {
         self.prompt.as_ref()
-    }
-
-    /// Type into the prompt. Returns false when no prompt is open.
-    pub fn prompt_type(&mut self, text: &str) -> bool {
-        match self.prompt.as_mut() {
-            Some(prompt) => {
-                prompt.text.push_str(text);
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Delete the prompt's last character. Returns false when no prompt is open.
-    pub fn prompt_backspace(&mut self) -> bool {
-        match self.prompt.as_mut() {
-            Some(prompt) => {
-                prompt.text.pop();
-                true
-            }
-            None => false,
-        }
     }
 
     /// Close the prompt without acting.
@@ -729,15 +698,48 @@ impl Editor {
                 ),
                 self.theme_now.page,
             );
-            let shown = format!("{}\u{2502}", prompt.text);
-            self.paint_page_label(
-                painter,
-                face,
-                &shown,
-                field_x + (8.0 * s) as i32,
-                baseline,
-                size,
+            let text_width = |end: usize| -> f32 {
+                face.shape(&prompt.text[..end], size, &[])
+                    .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
+                    .unwrap_or(0.0)
+            };
+            let inset = (8.0 * s) as i32;
+            let inner_x = field_x + inset;
+            let inner_w = (width - (14.0 * s) as i32 - inset - inner_x).max(1);
+            let caret_w = s.round().max(1.0) as i32;
+            let caret_offset = text_width(prompt.caret()).round() as i32;
+            let scroll = (caret_offset + caret_w - inner_w).max(0);
+            let text_x = inner_x - scroll;
+            let text_top = baseline - size.ceil() as i32;
+            let text_h = size.ceil() as i32 + (4.0 * s) as i32;
+            painter.push_clip(pixelkit_raster::Rect::new(
+                inner_x,
+                (6.0 * s) as i32,
+                inner_w,
+                (28.0 * s) as i32,
+            ));
+            let selected = prompt.selection();
+            if !selected.is_empty() {
+                let start = text_width(selected.start).round() as i32;
+                let end = text_width(selected.end).round() as i32;
+                painter.fill_rect(
+                    pixelkit_raster::Rect::new(text_x + start, text_top, end - start, text_h),
+                    self.theme_now.selection,
+                );
+            }
+            self.paint_page_label(painter, face, &prompt.text, text_x, baseline, size);
+            let caret_x = text_x + caret_offset;
+            painter.fill_rect(
+                pixelkit_raster::Rect::new(caret_x, text_top, caret_w, text_h),
+                self.theme_now.ink,
             );
+            painter.pop_clip();
+            self.caret = Some(crate::CaretRect {
+                x: f64::from(caret_x),
+                y: f64::from(text_top),
+                width: f64::from(caret_w),
+                height: f64::from(text_h),
+            });
             return;
         }
         for button in self.toolbar_buttons(width) {

@@ -341,6 +341,30 @@ record docwrite.work.spellcheck-optional/1 : work {
     author "dk"
 }
 
+record docwrite.work.writer-prompt-editing/1 : work {
+    title "Edit chapter names and search prompts with normal text controls"
+    state completed
+    intent """
+        Continue M6 in-window drafting by making toolbar text prompts editable at
+        the caret. Add grapheme-aware Left/Right, Home/End, Shift selection,
+        Select All, Delete, and clipboard copy/cut/paste. Render the selection and
+        keep the caret visible in long prompts. Route prompt input exclusively
+        to the prompt, preserving manuscript text and the existing commit/cancel flow.
+        """
+    acceptance {
+        check editing {
+            statement """
+                Chapter rename and search prompts support caret movement, selection, Unicode-safe deletion and replacement, clipboard editing, and visible long-input carets without changing manuscript text before commit.
+                """
+            method command
+            command "cargo test -p docwrite-app"
+            verified_by [ @docwrite.evidence.writer-prompt-editing/1 ]
+        }
+    }
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}
+
 record docwrite.work.writer-toolbar-wrap/1 : work {
     title "Keep writer commands reachable when the window narrows"
     state completed

@@ -670,6 +670,7 @@ dependencies = [
  "pixelkit-windowing",
  "quick-xml",
  "rfd",
+ "unicode-segmentation",
  "zip 8.6.0",
 ]
 

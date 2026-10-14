@@ -12,11 +12,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use docwrite_app::PromptKind;
 use docwrite_app::tabs::{DocumentTabs, TabCommand, TabStripLayout};
+use docwrite_app::{PromptKind, PromptMotion};
 use docwrite_model::{Align, Mark};
-use pixelkit_shell::clipboard::Clipboard;
 use pixelkit_shell::KeyInput;
+use pixelkit_shell::clipboard::Clipboard;
 use pixelkit_windowing::KeyEvent;
 use rfd::FileDialog;
 
@@ -527,13 +527,30 @@ impl EditorApp {
         if self.tabs.prompt().is_none() {
             return false;
         }
-        if event.modifiers.accel() && event.physical == "KeyV" {
-            if let Some(text) = self.clipboard.text() {
-                let text: String = text.chars().filter(|ch| !ch.is_control()).collect();
-                self.tabs.prompt_type(&text);
+        if event.modifiers.accel() {
+            match event.physical.as_str() {
+                "KeyA" => self.tabs.prompt_select_all(),
+                "KeyC" => {
+                    if let Some(text) = self.tabs.prompt_selected_text() {
+                        self.clipboard.set_text(text);
+                    }
+                }
+                "KeyX" => {
+                    if let Some(text) = self.tabs.prompt_selected_text()
+                        && self.clipboard.set_text(text)
+                    {
+                        self.tabs.prompt_cut();
+                    }
+                }
+                "KeyV" => {
+                    if let Some(text) = self.clipboard.text() {
+                        self.tabs.prompt_type(&text);
+                    }
+                }
+                _ => {}
             }
-            return true;
         }
+        let shift = event.modifiers.shift;
         match event.key {
             KeyInput::Enter => {
                 self.tabs.commit_prompt();
@@ -544,6 +561,19 @@ impl EditorApp {
             KeyInput::Backspace => {
                 self.tabs.prompt_backspace();
             }
+            KeyInput::Delete => {
+                self.tabs.prompt_delete_forward();
+            }
+            KeyInput::Left if event.modifiers.logo => {
+                self.tabs.prompt_move(PromptMotion::Home, shift)
+            }
+            KeyInput::Right if event.modifiers.logo => {
+                self.tabs.prompt_move(PromptMotion::End, shift)
+            }
+            KeyInput::Left => self.tabs.prompt_move(PromptMotion::Left, shift),
+            KeyInput::Right => self.tabs.prompt_move(PromptMotion::Right, shift),
+            KeyInput::Home => self.tabs.prompt_move(PromptMotion::Home, shift),
+            KeyInput::End => self.tabs.prompt_move(PromptMotion::End, shift),
             _ => {
                 let text = self.input_text(event);
                 self.tabs.prompt_type(&text);
@@ -898,6 +928,64 @@ mod input_tests {
         app.on_key_event(&space(true, false, Modifiers::default()));
         assert_eq!(app.tabs.prompt().unwrap().text, "あ ");
         assert_eq!(app.tabs.book().plain_text(), "");
+    }
+
+    #[test]
+    fn prompt_keyboard_edits_and_replaces_selection_without_touching_the_book() {
+        let mut app = app();
+        app.tabs.open_prompt(PromptKind::RenameChapter);
+        let send = |app: &mut EditorApp, key, physical: &str, modifiers| {
+            app.on_key_event(&KeyEvent {
+                key,
+                text: String::new(),
+                physical: physical.into(),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            });
+        };
+        send(&mut app, KeyInput::Home, "Home", Modifiers::default());
+        send(
+            &mut app,
+            KeyInput::Right,
+            "ArrowRight",
+            Modifiers {
+                shift: true,
+                ..Modifiers::default()
+            },
+        );
+        assert_eq!(app.tabs.prompt_selected_text().as_deref(), Some("C"));
+        send(&mut app, KeyInput::Delete, "Delete", Modifiers::default());
+        assert_eq!(app.tabs.prompt().unwrap().text, "hapter 1");
+        send(
+            &mut app,
+            KeyInput::Character('a'),
+            "KeyA",
+            Modifiers {
+                control: true,
+                logo: true,
+                ..Modifiers::default()
+            },
+        );
+        assert_eq!(app.tabs.prompt_selected_text().as_deref(), Some("hapter 1"));
+        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("新しい章".into()));
+        assert_eq!(app.tabs.prompt().unwrap().text, "新しい章");
+        send(&mut app, KeyInput::Left, "ArrowLeft", Modifiers::default());
+        send(
+            &mut app,
+            KeyInput::Backspace,
+            "Backspace",
+            Modifiers::default(),
+        );
+        assert_eq!(app.tabs.prompt().unwrap().text, "新し章");
+        assert_eq!(app.tabs.book().plain_text(), "");
+        assert_eq!(
+            app.tabs.book().parts()[0].chapters()[0].title(),
+            "Chapter 1"
+        );
+        send(&mut app, KeyInput::Enter, "Enter", Modifiers::default());
+        assert_eq!(app.tabs.book().parts()[0].chapters()[0].title(), "新し章");
+        assert!(app.tabs.prompt().is_none());
     }
 
     #[test]
