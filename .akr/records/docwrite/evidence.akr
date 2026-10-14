@@ -699,6 +699,19 @@ record docwrite.evidence.window-features-2026-09-24/1 : evidence {
         """
 }
 
+record docwrite.evidence.writer-200-page-exercise/1 : evidence {
+    title "Real release writer used native chapter prompts and X11 clipboard paste to create and save a 200-page, 7-chapter, 42600-word native manuscript. The long_manuscript release example reopened it, checked each payload exactly and chapter starts at 1/31/61/91/121/151/181, then measured typing, paging, paste, undo/redo, snapshot clone and save. Real-window reopen and page seek succeeded; a separate single 274KB clipboard paste saved exactly. Live screenshots and payloads retained in AKR-kept writer-200-pages scratch. Observed fullscreen magnification, width-dependent disappearance of the page counter, and desktop F11 interception are recorded at @docwrite.observation.writer-200-page-exercise. Workspace all-target check and git diff check passed."
+    state verified
+    result pass
+    method manual
+    observed_at git:3b94ed41037168dfa2afcdc3b31b8951096e1874
+    summary """
+        Real release writer used native chapter prompts and X11 clipboard paste to create and save a 200-page, 7-chapter, 42600-word native manuscript. The long_manuscript release example reopened it, checked each payload exactly and chapter starts at 1/31/61/91/121/151/181, then measured typing, paging, paste, undo/redo, snapshot clone and save. Real-window reopen and page seek succeeded; a separate single 274KB clipboard paste saved exactly. Live screenshots and payloads retained in AKR-kept writer-200-pages scratch. Observed fullscreen magnification, width-dependent disappearance of the page counter, and desktop F11 interception are recorded at @docwrite.observation.writer-200-page-exercise. Workspace all-target check and git diff check passed.
+        Capture ".agent/scratch/writer-200-pages/measurements.txt": 1432 bytes; sha256:17af40d32d7c3a551d7563a6ecbe8b335d1c6b36a5146e329cabcceaad301ad9 (identity only; raw capture is not a retained artifact).
+        """
+    author "dk"
+}
+
 record docwrite.evidence.writer-autosave-interval/1 : evidence {
     title "All 67 docwrite-app tests passed, including six added tests covering interval bounds and preference replacement, fullscreen shortcut and invalid/cancelled/failed setting changes, elapsed deadlines despite continued typing, preservation of newer edits during background writes, 120-minute timing, manual-save reset, overlapping-save prevention, initial Save As, and failure/retry recovery. Existing typing/navigation latency gates passed. Workspace all-target check passed without warnings. Host tick iterates every document tab with the shared interval; serialization and bundle writes remain in the background worker."
     state verified

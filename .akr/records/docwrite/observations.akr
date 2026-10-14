@@ -454,6 +454,60 @@ record docwrite.observation.viewer-paging-is-line-continuity/3 : observation {
     supersedes [ @docwrite.observation.viewer-paging-is-line-continuity/2 ]
 }
 
+record docwrite.observation.writer-200-page-exercise/1 : observation {
+    title "200-page paste works; fullscreen scaling and page counter need attention"
+    state verified
+    statement """
+        On 2026-10-14 at code head 3b94ed4, the release Liminaldoc writer accepted
+        seven actual X11 clipboard pastes (600 paragraphs, 274199 text bytes,
+        42600 words) and native chapter commands. The saved/reopened manuscript
+        has exactly 200 pages with chapter starts 1,31,61,91,121,151,181. Every
+        chapter matches its clipboard payload byte for byte. A separate single
+        274199-byte live paste also saved without truncation. Live undo/redo of
+        the final chapter paste changed the count 200 -> 181 -> 200; saved content
+        still matched. Reopening the real window and seeking to 181 worked.
+
+        Release Editor measurements at 1100x800: bundle open 1.6 ms, first paint
+        34 ms, page seek/paint 0.77–1.17 ms, typing/paint at pages 1/100/200
+        1.15–1.61 ms (one paragraph shaped, one or two pages repaginated), one
+        whole-book paste/paint 31 ms, undo 2.9 ms, redo 26.8 ms, bundle save
+        0.69 ms, autosave snapshot clone 25 us. These are in-process timings,
+        excluding compositor/display latency. No timed 15-minute autosave soak
+        was performed in this exercise.
+
+        Two UI problems are reproducible in the live 2560x1600, 2x scale window:
+        (1) Minimal fullscreen fits a physical page to the entire screen width.
+        A 6x9 page becomes 3840 pixels tall, so only about 40% fits vertically.
+        Page Down still advances to the next physical page, requiring within-page
+        scrolling to see intervening text. This undermines the requested simple
+        page-key reading workflow. (2) The normal toolbar drops its page counter
+        when the last action row has insufficient spare width; the counter was
+        visible at 2200px width but absent at 2560px. toolbar.rs paint_toolbar
+        conditionally omits the status instead of reserving room for it.
+
+        This desktop also intercepts F11: Openbox rc.xml binds F11 to
+        ToggleFullscreen. Two F11 presses changed OS fullscreen state but neither
+        entered the writer blue mode (pixel assertion failed). Ctrl+Shift+F
+        reached the writer and produced 3.8 million blue pixels. This is a desktop
+        binding conflict, not evidence of a broken writer F11 handler. Document
+        the existing alternate shortcut; do not change global desktop settings.
+
+        Fixture and screenshots are retained by AKR scratch keep under
+        .agent/scratch/writer-200-pages. The release example long_manuscript
+        prepares clipboard chunks and independently verifies content, chapter
+        boundaries and timings of the native bundle made through the window.
+        """
+    observed_at git:3b94ed41037168dfa2afcdc3b31b8951096e1874
+    method instrumented
+    watches [
+        "crates/docwrite-app/src/**",
+        "crates/docwrite-typeset/src/**",
+        "crates/docwrite-model/src/**"
+    ]
+    derived_from [ @docwrite.work.writer-200-page-exercise/1 ]
+    author "dk"
+}
+
 record docwrite.observation.zz-test/1 : observation {
     title "t"
     state superseded

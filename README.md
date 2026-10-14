@@ -21,7 +21,8 @@ The reader keeps its Lege rendering, navigation, search, selection and processin
 The writer prioritizes a minimal, terminal-like appearance and low latency for
 books and large articles. Page Up and Page Down turn physical pages. Ctrl+G
 (Cmd+G on macOS) opens a small **Go to page** prompt: enter a page number and
-press Enter, or Escape to cancel. The prompt also works in fullscreen (F11).
+press Enter, or Escape to cancel. The prompt also works in fullscreen (F11,
+or Ctrl+Shift+F / Cmd+Shift+F if the desktop reserves F11).
 Pages are numbered from 1 in document order, including blank pages. Seeking
 places the caret at the first editable line when the page has manuscript text;
 blank and generated pages are shown without moving the insertion point.

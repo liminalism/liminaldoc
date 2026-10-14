@@ -341,6 +341,31 @@ record docwrite.work.spellcheck-optional/1 : work {
     author "dk"
 }
 
+record docwrite.work.writer-200-page-exercise/1 : work {
+    title "Exercise 200-page clipboard manuscript in the real writer"
+    state completed
+    intent """
+        Exercise a real 200-page Lorem ipsum manuscript through the Liminaldoc
+        window and clipboard with chapter starts every 30 pages. Retain the native
+        bundle, verify saved/reopened content and physical chapter boundaries,
+        inspect ordinary/fullscreen rendering and page navigation, and measure
+        paste, typing, navigation and save behavior. Record observed failures and
+        prioritized improvements with reproducible evidence.
+        """
+    acceptance {
+        check exercise {
+            statement """
+                A retained 200-page native manuscript created through actual clipboard paste has seven chapters at 30-page intervals; live window checks and reproducible measurements identify observed issues and limitations.
+                """
+            method manual
+            verified_by [ @docwrite.evidence.writer-200-page-exercise/1 ]
+        }
+    }
+    implements [ @docwrite.req.minimal-writer-navigation/1, @docwrite.req.typing-latency/1 ]
+    part_of [ @docwrite.milestone.m6-writer-ready/1 ]
+    author "dk"
+}
+
 record docwrite.work.writer-autosave-interval/1 : work {
     title "Configurable background autosave every 15 to 120 minutes"
     state completed
@@ -401,6 +426,33 @@ record docwrite.work.writer-page-seek/1 : work {
     }
     implements [ @docwrite.req.exact-page-navigation, @docwrite.req.minimal-writer-navigation ]
     part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}
+
+record docwrite.work.writer-page-visibility/1 : work {
+    title "Keep page content and page count visible during long-book navigation"
+    state proposed
+    intent """
+        Address the long-manuscript exercise's two navigation visibility issues.
+        Keep the existing physical Page Up/Down and page-seek semantics. Fit or
+        bound fullscreen page scaling so a reader does not need extra scrolling
+        to see text skipped between consecutive page-key views. Reserve room for
+        the current/total page counter at every normal toolbar width, including
+        row-wrap thresholds. Preserve the barebones appearance and cached layout;
+        do not introduce viewing modes. Reuse the retained 200-page native book
+        and live-window checks as acceptance evidence.
+        """
+    acceptance {
+        check visible-pages {
+            statement """
+                At ordinary and high-DPI window sizes, physical page-key navigation does not hide intervening manuscript text below the viewport, and the current/total page count remains visible at toolbar wrap thresholds.
+                """
+            method manual
+        }
+    }
+    derived_from [ @docwrite.observation.writer-200-page-exercise/1 ]
+    implements [ @docwrite.req.minimal-writer-navigation/1 ]
+    part_of [ @docwrite.milestone.m6-writer-ready/1 ]
     author "dk"
 }
 
