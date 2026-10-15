@@ -2,11 +2,10 @@ akr-lock 0.1
 project lege-docwrite
 
 build {
-    tool "akr 0.5.2"
+    tool "akr 0.5.1"
     grammar "0.1"
     vocabulary "0.2"
-    commit git:ef698d73d3cc489fad5135cfb7a62d8dc9a07029
-    source_graph "sha256:0ff0e05d34614167340e960324f52d4b7063986407363a57b46736cdf292a196"
+    source_graph "sha256:49e4861fd9c9578ecff72e8803c4bcd04c3838f877c19142196719168dc47603"
 }
 
 source ".akr/project.akr" {
@@ -20,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:d7abf66af64fa327f6d16c1f4fb9fc6ef14446caefcc384f75430cc76b70a081"
-    records 64
+    hash "sha256:acdfc3bef1aa3b573586773486dc8c5682ae69be6f42eb45e16647ba8e10b6d6"
+    records 70
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -30,13 +29,13 @@ source ".akr/records/docwrite/milestones.akr" {
 }
 
 source ".akr/records/docwrite/observations.akr" {
-    hash "sha256:8a8b68ac2a500a45b6d5f3ce59589c769e89c53fafaaf21127b5a1c35df392db"
-    records 29
+    hash "sha256:37c51d24cbbb581ef520d34e2b78ca0e8e9b0699c9f7b254af0cc3b778e8020b"
+    records 30
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:c3288d619f2b6f6568d10358be1af51baf2fb7f4dc8c0eca9e87d7d31de8b9b0"
-    records 27
+    hash "sha256:6ef8bb8b221857f3ae5c1df05febc3b67664591a7d340217f0d335f43c797b8b"
+    records 37
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -45,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:a6228958a5f51c3f95d6104730876f7581dd9cd64046b25a666f92d8c8598557"
-    records 31
+    hash "sha256:5d905701f86febd6cd736f5b6d38292333d6daffe43c6dda1765cc5f9d8e9ec8"
+    records 33
 }
 
 source ".akr/records/lege/work.akr" {
@@ -841,6 +840,36 @@ seal @docwrite.evidence.pdf-renders-typeset-pages/1 {
     hash "sha256:e7bd9281f6cefd4eca8d2097b969f914905bc363649297d301977e47c47f8cc1"
 }
 
+seal @docwrite.evidence.pdf-selection-copy-tests/1 {
+    state verified
+    hash "sha256:870e555d5354e8105e74c4fd535c00d4760880212b8adcb06823ddb0278be89d"
+}
+
+seal @docwrite.evidence.pdf-startup-correctness/1 {
+    state verified
+    hash "sha256:3d785ccf6d68799663bf5abaf46f2d1a5b8e04ba0a9e4bae2a8d7fa9f2542b99"
+}
+
+seal @docwrite.evidence.pdf-startup-latency/1 {
+    state superseded
+    hash "sha256:c46ea680a39579db32b9744522cc8dd9a3277b99bf338e94c1290044726066b8"
+}
+
+seal @docwrite.evidence.pdf-startup-latency/2 {
+    state verified
+    hash "sha256:26778cbc83a03958daa75cd5925b63c70b5b499955f830771055851f6695301e"
+}
+
+seal @docwrite.evidence.pdf-startup-measured/1 {
+    state superseded
+    hash "sha256:2c0c2e5a2ad761a80854591368adedb98ba3db666a6a452531ee27948b0d94f2"
+}
+
+seal @docwrite.evidence.pdf-startup-measured/2 {
+    state verified
+    hash "sha256:a79bfc306e033979e0c9b61734a25413449ef3317f31f69da8df9d0d16342619"
+}
+
 seal @docwrite.evidence.reader-markdown-clippy/1 {
     state superseded
     hash "sha256:f153ba38de7f40fb7fa8eb0d8a1fb0b4b0bedef9b275a50ed68625c50cba5694"
@@ -1066,6 +1095,11 @@ seal @docwrite.observation.no-shaping-in-workspace/4 {
     hash "sha256:43d0f71d3de20231d406bbd7bd9773bef526fbed2a6e7fc93a2ea84a310b7a78"
 }
 
+seal @docwrite.observation.pdf-startup-software-first/1 {
+    state verified
+    hash "sha256:9ee9b8758a3a37496e1b44947239cd90f6c4be1c57d6f1951f42fe80e73412a7"
+}
+
 seal @docwrite.observation.pdf-text-supports-source-passages/1 {
     state superseded
     hash "sha256:b02f0037b4d6a7c44ad79b009b5b182588adee254337addd5f4b68ea45e8f5d2"
@@ -1206,9 +1240,19 @@ seal @docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 {
     hash "sha256:d687c7017e8fe1e442afd6e79e1a6d59625c915660c55aff0923925650045c67"
 }
 
+seal @docwrite.papercut.akr-context-accepts-revision-qualified-goals/1 {
+    state verified
+    hash "sha256:eccf78a04b8cb3e59d5a8f86ed1120b99d56b1b9d53284b2916971ddef9579c4"
+}
+
 seal @docwrite.papercut.akr-propose-rejected-repeated-implements/1 {
     state verified
     hash "sha256:bc99281099846358104017f3af1a23fc16571cc894fe13959dcdf933676db88c"
+}
+
+seal @docwrite.papercut.cargo-fmt-all-traverses-sibling-path-workspaces/1 {
+    state verified
+    hash "sha256:cb43d805eb58edafe96e3f4c32295a0cebb2b02ccf4a25bee3a52568b7e7e78f"
 }
 
 seal @docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 {
@@ -1241,9 +1285,29 @@ seal @docwrite.papercut.long-manuscript-investigation-initially-guessed/1 {
     hash "sha256:8db9f4358d97a56de0fa5ecd5de5801a2bce6c0c552186a71cc49c62699b29a7"
 }
 
+seal @docwrite.papercut.pdf-interaction-regression-tests-found-two/1 {
+    state verified
+    hash "sha256:766012ead3ed0ee32c668c0a819341750405350190b6fbadd1669153ef155eb6"
+}
+
+seal @docwrite.papercut.preparing-the-requested-clean-tree-commit/1 {
+    state verified
+    hash "sha256:0b571939c091d8f8d8d25934d3d1ea351fe5e6c8f0c0b46354e40be6b57d8034"
+}
+
 seal @docwrite.papercut.starting-writer-work-tried-akr-context-key/1 {
     state verified
     hash "sha256:7d7255500e3e68fc22a2ee22dc22a311a32f4fd8eb51841fb247dfe428bf05fa"
+}
+
+seal @docwrite.papercut.the-context-command-requires-goal-even-though/1 {
+    state verified
+    hash "sha256:b6bfa84df006fbb5e36929d6e1d03c260d1c6f3239e825494afbc02842596cd0"
+}
+
+seal @docwrite.papercut.the-initial-gui-timing-script-used-selectors/1 {
+    state verified
+    hash "sha256:13da3cd5d22dccd9a5fe69643748d563589d7ecb864720d309cfc3e6070f03c3"
 }
 
 seal @docwrite.papercut.the-page-seek-regression-assumed-a-long-single/1 {
@@ -1259,6 +1323,11 @@ seal @docwrite.papercut.the-prompt-regression-initially-assumed-chapter/1 {
 seal @docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 {
     state verified
     hash "sha256:a73208dfd0da3ea9b8f8feb2d7fc4ac062e327f32575dd6a74456f0ea1438e92"
+}
+
+seal @docwrite.papercut.this-fresh-liminaldoc-checkout-has-no-target/1 {
+    state verified
+    hash "sha256:6398eecadef5f9b66857f79f38f20b96ed3a02897c2a91ec1d0eb67a30a3e486"
 }
 
 seal @docwrite.papercut.while-adding-rfd-and-document-import/1 {
@@ -1281,6 +1350,16 @@ seal @docwrite.papercut.while-inspecting-prompt-navigation-a/1 {
     hash "sha256:13bbac3c40076fab56ec662147c7ce121d0e0727fde97067e82bbdf28446fd2b"
 }
 
+seal @docwrite.papercut.while-inspecting-the-pdf-startup-apis-i-guessed/1 {
+    state verified
+    hash "sha256:1b71a9c780fa36c02463a2ec21b52e53c074b199982a7ddce844f2193917fe7e"
+}
+
+seal @docwrite.papercut.while-opening-the-pdf-startup-advisory-context/1 {
+    state verified
+    hash "sha256:5182d21a130d8507666c5b208cac520602bc854e4ea1ecf340c8febd0324a2c8"
+}
+
 seal @docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 {
     state superseded
     hash "sha256:7d0fb34257fd0b5251b84b55bc5fdbd27a118feab27ac595231dd64bdcbcb6c8"
@@ -1299,6 +1378,11 @@ seal @docwrite.papercut.while-testing-host-input-routing-editor-new/1 {
 seal @docwrite.papercut.while-testing-host-input-routing-editor-new/2 {
     state verified
     hash "sha256:a35f5708f77af88ad0a58aca8528b2e6a84bbbc5a4a2d5ecd23e2bdc193cf984"
+}
+
+seal @docwrite.papercut.while-tracing-pdf-selection-guessed-src-text/1 {
+    state verified
+    hash "sha256:21958e5c7918d6ce1e3df40e2c1d69e4157f9ec316d8bced6bb8c02ab4872297"
 }
 
 seal @docwrite.papercut.while-visually-checking-the-launched-lege/1 {
@@ -1384,6 +1468,16 @@ seal @docwrite.work.m6-measured-footnotes/1 {
 seal @docwrite.work.m6-window-chapter-commands/1 {
     state completed
     hash "sha256:b513b70310688584eb0d2214da8da4529d6ab076776006e652b38ff51dc19551"
+}
+
+seal @docwrite.work.pdf-selection-copy/1 {
+    state completed
+    hash "sha256:753ac80843d5fff98c8045e526ce56f816b44ce6bb27cccb1c17949fde62dace"
+}
+
+seal @docwrite.work.pdf-startup-latency/1 {
+    state completed
+    hash "sha256:be6fab6b1ca53b899778459a90b5eb288e309b2c266ed06d9d4410b0373e5da8"
 }
 
 seal @docwrite.work.writer-200-page-exercise/1 {

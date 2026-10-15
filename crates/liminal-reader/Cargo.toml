@@ -25,6 +25,11 @@ name = "pdf_tile_profile"
 path = "examples/pdf_tile_profile.rs"
 required-features = ["pdf-engine"]
 
+[[example]]
+name = "pdf_startup_profile"
+path = "examples/pdf_startup_profile.rs"
+required-features = ["pdf-engine"]
+
 [features]
 default = ["wgpu-presenter", "softbuffer-presenter", "pdf-engine"]
 softbuffer-presenter = ["dep:softbuffer"]

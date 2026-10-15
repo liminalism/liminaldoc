@@ -1,5 +1,48 @@
 use std::time::{Duration, Instant};
 
+use crate::document::{DocumentId, TileKey, TileTier, ViewportIntent};
+
+/// Real PDF coverage in an already composed frame. Geometry placeholders and
+/// stale variants never qualify as visible document content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PresentedCoverage {
+    pub any: bool,
+    pub covered: bool,
+    pub exact: bool,
+}
+
+impl PresentedCoverage {
+    pub fn from_images(
+        document: DocumentId,
+        intent: &ViewportIntent,
+        images: impl Iterator<Item = TileKey>,
+    ) -> Self {
+        let images = images.collect::<std::collections::HashSet<_>>();
+        let has_final = |demand: &crate::document::TileDemand| {
+            images.contains(&demand.key(document, intent.bucket, TileTier::Final))
+        };
+        let has_preview = |demand: &crate::document::TileDemand| {
+            images.iter().any(|key| {
+                key.document == document
+                    && key.page == demand.page
+                    && key.variant == demand.variant
+                    && key.tier == TileTier::Thumbnail
+            })
+        };
+        let visible = &intent.visible_tiles;
+        Self {
+            any: visible
+                .iter()
+                .any(|demand| has_final(demand) || has_preview(demand)),
+            covered: !visible.is_empty()
+                && visible
+                    .iter()
+                    .all(|demand| has_final(demand) || has_preview(demand)),
+            exact: !visible.is_empty() && visible.iter().all(has_final),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SeekTrace {
     pub generation: u64,
@@ -159,6 +202,86 @@ impl FrameMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visible_coverage_requires_real_current_document_pixels_for_every_tile() {
+        use crate::document::{PageIndex, TileCoord, TileDemand};
+        use crate::geometry::{RectF, RectI};
+        let document = DocumentId(42);
+        let first = TileDemand {
+            page: PageIndex(0),
+            coord: TileCoord { x: 0, y: 0 },
+            page_device_rect: RectI {
+                x: 0,
+                y: 0,
+                width: 256,
+                height: 256,
+            },
+            page_document_rect: RectF::ZERO,
+            distance_from_viewport: 0.0,
+            visible: true,
+            page_view_box: RectF::ZERO,
+            color_mode: crate::document::ColorMode::Original,
+            variant: 7,
+        };
+        let second = TileDemand {
+            coord: TileCoord { x: 1, y: 0 },
+            ..first
+        };
+        let mut intent = ViewportIntent::empty();
+        intent.visible_tiles = std::sync::Arc::from([first, second]);
+        let final_key = |demand: TileDemand| demand.key(document, intent.bucket, TileTier::Final);
+        let coverage = |keys: Vec<TileKey>| {
+            PresentedCoverage::from_images(document, &intent, keys.into_iter())
+        };
+        let exact = [final_key(first), final_key(second)];
+        assert_eq!(coverage(vec![]), PresentedCoverage::default());
+        assert_eq!(
+            coverage(vec![first.key(
+                document,
+                intent.bucket,
+                TileTier::TextFirst
+            )]),
+            PresentedCoverage::default()
+        );
+        assert_eq!(
+            coverage(vec![exact[0]]),
+            PresentedCoverage {
+                any: true,
+                covered: false,
+                exact: false
+            }
+        );
+        assert_eq!(
+            coverage(exact.to_vec()),
+            PresentedCoverage {
+                any: true,
+                covered: true,
+                exact: true
+            }
+        );
+        let preview = first.key(document, intent.bucket, TileTier::Thumbnail);
+        assert_eq!(
+            coverage(vec![preview]),
+            PresentedCoverage {
+                any: true,
+                covered: true,
+                exact: false
+            }
+        );
+        for stale in [
+            TileKey {
+                variant: 6,
+                ..preview
+            },
+            TileKey {
+                document: DocumentId(41),
+                ..preview
+            },
+        ] {
+            assert_eq!(coverage(vec![stale]), PresentedCoverage::default());
+        }
+    }
 
     #[test]
     fn seek_trace_records_each_stage_only_once() {

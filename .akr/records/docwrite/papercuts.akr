@@ -84,6 +84,17 @@ record docwrite.papercut.akr-commands-for-docwrite-must-run-with-lege/2 : paperc
     created_at 2026-09-24
 }
 
+record docwrite.papercut.akr-context-accepts-revision-qualified-goals/1 : papercut {
+    title "akr context accepts revision-qualified goals, but akr complete rejects…"
+    state verified
+    statement """
+        akr context accepts revision-qualified goals, but akr complete rejects docwrite.work.pdf-selection-copy/1 as an invalid key and requires the unversioned key. The help calls both arguments keys without highlighting that difference.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
+}
+
 record docwrite.papercut.akr-propose-rejected-repeated-implements/1 : papercut {
     title "AKR propose rejected repeated implements relation slots while recording…"
     state verified
@@ -93,6 +104,17 @@ record docwrite.papercut.akr-propose-rejected-repeated-implements/1 : papercut {
     observed_at git:3b94ed41037168dfa2afcdc3b31b8951096e1874
     author "codex"
     created_at 2026-10-14
+}
+
+record docwrite.papercut.cargo-fmt-all-traverses-sibling-path-workspaces/1 : papercut {
+    title "cargo fmt --all traverses sibling path workspaces and attempts…"
+    state verified
+    statement """
+        cargo fmt --all traverses sibling path workspaces and attempts formatting their read-only tests. Use rustfmt on changed Liminaldoc files to keep formatting within this repository.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
 }
 
 record docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 : papercut {
@@ -164,6 +186,28 @@ record docwrite.papercut.long-manuscript-investigation-initially-guessed/1 : pap
     created_at 2026-10-14
 }
 
+record docwrite.papercut.pdf-interaction-regression-tests-found-two/1 : papercut {
+    title "PDF interaction regression tests found two silent failures: search…"
+    state verified
+    statement """
+        PDF interaction regression tests found two silent failures: search retains Ctrl+C ownership after selecting page text, and the conductor remembers geometry as published forever even after UI cache eviction. The basic fresh-page PDF test passed, so both interaction histories must be exercised.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
+}
+
+record docwrite.papercut.preparing-the-requested-clean-tree-commit/1 : papercut {
+    title "Preparing the requested clean-tree commit failed because this workspace…"
+    state verified
+    statement """
+        Preparing the requested clean-tree commit failed because this workspace sandbox mounts .git read-only: akr change begin could not write current-change.akr and git add could not create index.lock. Git/AKR transaction writes need escalated execution in this environment.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
+}
+
 record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut {
     title "Starting writer work, tried akr context KEY based on the CLI mapping;…"
     state verified
@@ -173,6 +217,28 @@ record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut
     observed_at git:254a4bbf679c3e4d905983fc446fd6b7c899fb0e
     author "codex"
     created_at 2026-10-14
+}
+
+record docwrite.papercut.the-context-command-requires-goal-even-though/1 : papercut {
+    title "The context command requires --goal even though start describes a…"
+    state verified
+    statement """
+        The context command requires --goal even though start describes a context request without showing a command; retried after the positional-key attempt failed.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
+}
+
+record docwrite.papercut.the-initial-gui-timing-script-used-selectors/1 : papercut {
+    title "The initial GUI timing script used selectors with buffered text…"
+    state verified
+    statement """
+        The initial GUI timing script used selectors with buffered text readline; several diagnostics emitted together remained in the Python read buffer and made exact-presentation detection wait until timeout. Use raw os.read with an explicit line buffer.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
 }
 
 record docwrite.papercut.the-page-seek-regression-assumed-a-long-single/1 : papercut {
@@ -206,6 +272,17 @@ record docwrite.papercut.the-repository-local-rfd-fork-builds-for/1 : papercut {
     observed_at git:9ae0c209c55470707a55089a740488e1cbff4fea
     author "codex"
     created_at 2026-09-24
+}
+
+record docwrite.papercut.this-fresh-liminaldoc-checkout-has-no-target/1 : papercut {
+    title "This fresh Liminaldoc checkout has no target directory or local Cargo…"
+    state verified
+    statement """
+        This fresh Liminaldoc checkout has no target directory or local Cargo config; baseline checks rebuild the entire sibling renderer dependency graph. Benchmark setup must account for the first build cost separately from document latency.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
 }
 
 record docwrite.papercut.while-adding-rfd-and-document-import/1 : papercut {
@@ -251,6 +328,28 @@ record docwrite.papercut.while-inspecting-prompt-navigation-a/1 : papercut {
     observed_at git:43805ac4a7cfa09081ca54d542b242ffaf86278e
     author "codex"
     created_at 2026-10-14
+}
+
+record docwrite.papercut.while-inspecting-the-pdf-startup-apis-i-guessed/1 : papercut {
+    title "While inspecting the PDF startup APIs I guessed document/pdf.rs; the…"
+    state verified
+    statement """
+        While inspecting the PDF startup APIs I guessed document/pdf.rs; the implementation is document/pdf_engine.rs. The missing-file read was harmless and retried with the actual module path.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "startup-benchmark"
+    created_at 2026-10-15
+}
+
+record docwrite.papercut.while-opening-the-pdf-startup-advisory-context/1 : papercut {
+    title "While opening the PDF startup advisory context, `akr context KEY…"
+    state verified
+    statement """
+        While opening the PDF startup advisory context, `akr context KEY --paths PATH` failed because context requires the less obvious --goal flag; rerunning with --goal.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "astra_advisor"
+    created_at 2026-10-15
 }
 
 record docwrite.papercut.while-parsing-docx-xml-with-quick-xml-0-41-the/1 : papercut {
@@ -299,6 +398,17 @@ record docwrite.papercut.while-testing-host-input-routing-editor-new/2 : papercu
     supersedes [ @docwrite.papercut.while-testing-host-input-routing-editor-new/1 ]
     author "codex"
     created_at 2026-09-24
+}
+
+record docwrite.papercut.while-tracing-pdf-selection-guessed-src-text/1 : papercut {
+    title "While tracing PDF selection, guessed src/text/hit.rs; the…"
+    state verified
+    statement """
+        While tracing PDF selection, guessed src/text/hit.rs; the implementation is in hit_test.rs. The existing selection plumbing spans app, substrate and PDF extraction, so an end-to-end PDF fixture is needed to localize silent failures.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    author "codex"
+    created_at 2026-10-15
 }
 
 record docwrite.papercut.while-visually-checking-the-launched-lege/1 : papercut {

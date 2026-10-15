@@ -504,6 +504,87 @@ record docwrite.evidence.pdf-renders-typeset-pages/1 : evidence {
         """
 }
 
+record docwrite.evidence.pdf-selection-copy-tests/1 : evidence {
+    title "Working tree atop 291f3732: 122 reader library tests and 35 architecture tests passed, workspace all-target check passed. Generated 20-page PDF test drives the real conductor and pointer handlers, compares exact two-line copy text, checks highlight geometry, transfers keyboard focus from search, forces UI text eviction under memory pressure, revisits page zero and selects the same text again. Earlier regression runs failed on retained search focus and missing geometry on revisit. OS clipboard delivery is covered by existing external-backend tests, not a live desktop round-trip in this run."
+    state verified
+    result pass
+    method command
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    command "cargo test -p liminaldoc-reader --all-targets; cargo check --workspace --all-targets"
+    summary """
+        Working tree atop 291f3732: 122 reader library tests and 35 architecture tests passed, workspace all-target check passed. Generated 20-page PDF test drives the real conductor and pointer handlers, compares exact two-line copy text, checks highlight geometry, transfers keyboard focus from search, forces UI text eviction under memory pressure, revisits page zero and selects the same text again. Earlier regression runs failed on retained search focus and missing geometry on revisit. OS clipboard delivery is covered by existing external-backend tests, not a live desktop round-trip in this run.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.pdf-startup-correctness/1 : evidence {
+    title "Working tree atop 291f3732: 121 reader library tests and 35 architecture tests passed, all targets workspace check passed, reader clippy warnings denied passed, changed Rust files rustfmt and git diff --check clean. GPU-only+PDF and software-only+PDF all-target feature checks passed. No-default all-target check passed with pre-existing NeedsPassword dead-code warning; new software_start warning was fixed and GPU-only rerun clean. Eight before/after final and preview checksums identical, all 11 headless documents rendered with exit 0. Actual NVIDIA Vulkan promotion succeeded at 2322.897 ms after software exact content at 312.461 ms in a separate validation run; captured page visually correct. Independent reviewer final packet rs-d76f11e2e2b9 found no remaining must-fix issues."
+    state verified
+    result pass
+    method command
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    command "cargo test -p liminaldoc-reader --all-targets; cargo check --workspace --all-targets; cargo clippy -p liminaldoc-reader --all-targets --no-deps -- -D warnings"
+    artifact ".agent/scratch/pdf-startup/headless-after.json"
+    summary """
+        Working tree atop 291f3732: 121 reader library tests and 35 architecture tests passed, all targets workspace check passed, reader clippy warnings denied passed, changed Rust files rustfmt and git diff --check clean. GPU-only+PDF and software-only+PDF all-target feature checks passed. No-default all-target check passed with pre-existing NeedsPassword dead-code warning; new software_start warning was fixed and GPU-only rerun clean. Eight before/after final and preview checksums identical, all 11 headless documents rendered with exit 0. Actual NVIDIA Vulkan promotion succeeded at 2322.897 ms after software exact content at 312.461 ms in a separate validation run; captured page visually correct. Independent reviewer final packet rs-d76f11e2e2b9 found no remaining must-fix issues.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.pdf-startup-latency/1 : evidence {
+    title "The measured final mean exact-visible latency is 277.663 ms across 33 launches of 11 PDFs, below the requested 300 ms average; median 217.516 ms. The 182 MB scanned book remains 535-592 ms because document metadata parsing alone takes roughly 400 ms. This is an average for the recorded local corpus and hardware, not a universal 300 ms per-document guarantee. Auto starts software, prepares shared GPU context in a worker, and promotes after a real fully covered frame; explicit GPU remains synchronous. Final release SHA256 2828c84111c7d1e904ff198b065d8c2268dfc2fc3f7e9f2123ee2b0c659a5550 installed to /home/dk/.local/bin/liminaldoc-reader with prior installed binary kept in scratch/pdf-startup/installed-reader-before."
+    state superseded
+    result pass
+    method observation
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    artifact ".agent/scratch/pdf-startup/gui-final-after.json"
+    summary """
+        The measured final mean exact-visible latency is 277.663 ms across 33 launches of 11 PDFs, below the requested 300 ms average; median 217.516 ms. The 182 MB scanned book remains 535-592 ms because document metadata parsing alone takes roughly 400 ms. This is an average for the recorded local corpus and hardware, not a universal 300 ms per-document guarantee. Auto starts software, prepares shared GPU context in a worker, and promotes after a real fully covered frame; explicit GPU remains synchronous. Final release SHA256 2828c84111c7d1e904ff198b065d8c2268dfc2fc3f7e9f2123ee2b0c659a5550 installed to /home/dk/.local/bin/liminaldoc-reader with prior installed binary kept in scratch/pdf-startup/installed-reader-before.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.pdf-startup-latency/2 : evidence {
+    title "The measured final mean exact-visible latency is 277.663 ms across 33 launches of 11 PDFs, below the requested 300 ms average; median 217.516 ms. The 182 MB scanned book remains 535-592 ms because document metadata parsing alone takes roughly 400 ms. This is an average for the recorded local corpus and hardware, not a universal 300 ms per-document guarantee. Auto starts software, prepares shared GPU context in a worker, and promotes after a real fully covered frame; explicit GPU remains synchronous. Final release SHA256 2828c84111c7d1e904ff198b065d8c2268dfc2fc3f7e9f2123ee2b0c659a5550 installed to /home/dk/.local/bin/liminaldoc-reader with prior installed binary kept in scratch/pdf-startup/installed-reader-before."
+    state verified
+    result pass
+    method observation
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    artifact ".agent/scratch/pdf-startup/gui-final-after.json"
+    summary """
+        Measured final mean exact-visible latency 277.662 ms across 33 launches of 11 PDFs, below the requested 300 ms average; median 217.516 ms. The 182 MB scan remains 535-592 ms because metadata parsing alone takes roughly 400 ms. This is a corpus/hardware average, not a per-document guarantee. Auto starts software, prepares the shared GPU context in a worker, and promotes after a real fully covered frame; explicit GPU remains synchronous. Release SHA256 2828c84111c7d1e904ff198b065d8c2268dfc2fc3f7e9f2123ee2b0c659a5550 installed to /home/dk/.local/bin/liminaldoc-reader; prior installed binary kept at .agent/scratch/pdf-startup/installed-reader-before.
+        """
+    supersedes [ @docwrite.evidence.pdf-startup-latency/1 ]
+    author "dk"
+}
+
+record docwrite.evidence.pdf-startup-measured/1 : evidence {
+    title "Working tree atop 291f3732, Linux X11, release opt-level 3/fat LTO, default Auto presenter, 1280x900 window: 11 local PDFs (text, scans, vector, 182 MB scan), 3 fresh-process launches each per version, no concurrent builds. Baseline fully covered mean 440.342 ms, exact mean 442.414 ms; baseline cold hello exact 2071.995 ms. Final fully covered/exact mean 277.663 ms, median 217.516 ms; p95 by floor rank 534.986 ms, maximum 592.364 ms. Timers start at main entry before CLI/open and end after actual presenter frame advancement with composed current-document/current-variant coverage; synthetic TextFirst does not count. Full raw final output is adjacent gui-final-after.json."
+    state superseded
+    result pass
+    method observation
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    artifact ".agent/scratch/pdf-startup/gui-final-baseline.json"
+    summary """
+        Working tree atop 291f3732, Linux X11, release opt-level 3/fat LTO, default Auto presenter, 1280x900 window: 11 local PDFs (text, scans, vector, 182 MB scan), 3 fresh-process launches each per version, no concurrent builds. Baseline fully covered mean 440.342 ms, exact mean 442.414 ms; baseline cold hello exact 2071.995 ms. Final fully covered/exact mean 277.663 ms, median 217.516 ms; p95 by floor rank 534.986 ms, maximum 592.364 ms. Timers start at main entry before CLI/open and end after actual presenter frame advancement with composed current-document/current-variant coverage; synthetic TextFirst does not count. Full raw final output is adjacent gui-final-after.json.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.pdf-startup-measured/2 : evidence {
+    title "Working tree atop 291f3732, Linux X11, release opt-level 3/fat LTO, default Auto presenter, 1280x900 window: 11 local PDFs (text, scans, vector, 182 MB scan), 3 fresh-process launches each per version, no concurrent builds. Baseline fully covered mean 440.342 ms, exact mean 442.414 ms; baseline cold hello exact 2071.995 ms. Final fully covered/exact mean 277.663 ms, median 217.516 ms; p95 by floor rank 534.986 ms, maximum 592.364 ms. Timers start at main entry before CLI/open and end after actual presenter frame advancement with composed current-document/current-variant coverage; synthetic TextFirst does not count. Full raw final output is adjacent gui-final-after.json."
+    state verified
+    result pass
+    method observation
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    artifact ".agent/scratch/pdf-startup/gui-final-baseline.json"
+    summary """
+        Working tree atop 291f3732, Linux X11, release opt-level 3/fat LTO, default Auto presenter, 1280x900 window. Eleven local PDFs including text, scans, vector and an 182 MB scan; three fresh-process launches per version, no concurrent builds. Baseline covered mean 440.340 ms and exact mean 442.415 ms; cold hello exact 2071.995 ms. Final covered mean 277.657 ms and exact mean 277.662 ms, exact median 217.516 ms, floor-rank p95 534.986 ms, max 592.364 ms. Timers begin at main entry before CLI/open and end after actual presenter frame advancement with composed current-document/current-variant coverage. TextFirst does not count. Final raw output is adjacent gui-final-after.json and calculated statistics are in summary.json.
+        """
+    supersedes [ @docwrite.evidence.pdf-startup-measured/1 ]
+    author "dk"
+}
+
 record docwrite.evidence.reader-markdown-clippy/1 : evidence {
     title "Clippy clean, no warnings. Working tree atop 21bc9e2 (code uncommitted)."
     state superseded

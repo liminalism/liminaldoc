@@ -34,6 +34,7 @@ impl WakeSink for WinitWake {
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let load_started = std::time::Instant::now();
     let config = match parse_launch_config(std::env::args_os().skip(1)) {
         Ok(config) if config.mode == LaunchMode::Help => {
             println!("{USAGE}");
@@ -66,6 +67,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         Startup::NeedsPassword(path) => (Arc::new(EmptyEngine::new()), Some(path)),
     };
     let mut app = ViewerApp::new_with_presenter(engine, updates, config.presenter)?;
+    app.trace_document_load(load_started);
     if let Some(path) = locked {
         app.begin_password_prompt(path);
     }

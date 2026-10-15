@@ -328,6 +328,62 @@ record docwrite.work.pdf-document-tab/1 : work {
         """
 }
 
+record docwrite.work.pdf-selection-copy/1 : work {
+    title "Restore PDF selection and copy across viewer interactions"
+    state completed
+    intent "Repair PDF viewer text selection and clipboard routing, including revisiting cached pages and selecting document text after searching."
+    acceptance {
+        check build {
+            statement """
+                The workspace compiles for all targets and reader architecture tests pass.
+                """
+            method command
+            command "cargo check --workspace --all-targets; cargo test -p liminaldoc-reader --test architecture"
+            verified_by [ @docwrite.evidence.pdf-selection-copy-tests/1 ]
+        }
+        check selection-copy {
+            statement """
+                PDF pointer selection produces the expected text and visible highlight geometry, search yields keyboard focus to the document, and revisiting a page republishes selectable geometry after eviction.
+                """
+            method command
+            command "cargo test -p liminaldoc-reader --lib"
+            verified_by [ @docwrite.evidence.pdf-selection-copy-tests/1 ]
+        }
+    }
+    author "dk"
+}
+
+record docwrite.work.pdf-startup-latency/1 : work {
+    title "PDF open to visible page toward 300 ms"
+    state completed
+    intent "Reduce document open to a visible PDF page toward an average 300 ms by measuring the production load path and removing avoidable startup work. Preserve exact raster output, navigation, links, Unicode chrome and cancellation."
+    acceptance {
+        check correctness {
+            statement """
+                Reader tests and workspace all-target checks pass; exact rendered pixels remain correct.
+                """
+            method command
+            command "cargo test -p liminaldoc-reader --all-targets; cargo check --workspace --all-targets"
+            verified_by [ @docwrite.evidence.pdf-startup-correctness/1 ]
+        }
+        check latency {
+            statement """
+                Record achieved open-to-visible averages and limitations against the 300 ms target.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.pdf-startup-latency/2 ]
+        }
+        check measured {
+            statement """
+                Measure a representative multi-document release corpus before and after, distinguishing actual presentation from headless raster readiness.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.pdf-startup-measured/2 ]
+        }
+    }
+    author "dk"
+}
+
 record docwrite.work.spellcheck-optional/1 : work {
     title "Optional SymSpell spellchecking behind a feature flag"
     state proposed

@@ -13,7 +13,7 @@ use winit::window::{CursorIcon, Fullscreen, Window, WindowId};
 
 use crate::chrome::{AppLayout, ScrollbarGeometry, ScrollbarState, StatusState, TrackRepeat};
 use crate::damage::DamageRegion;
-use crate::diagnostics::{FrameMetrics, SeekTrace};
+use crate::diagnostics::{FrameMetrics, PresentedCoverage, SeekTrace};
 use crate::document::engine::{DocumentEngine, DocumentEngineError};
 use crate::document::layout::PageLayoutIndex;
 use crate::document::session::{SessionUpdate, UpdateQueue};
@@ -610,6 +610,7 @@ pub struct ViewerApp {
     window: Option<Arc<Window>>,
     presenter: Option<Box<dyn Presenter>>,
     presenter_preference: PresenterPreference,
+    gpu_promotion_ready: bool,
     scene: FrameScene,
     pending_scroll_reuse: Option<ScrollReuse>,
     surface_suspended: bool,
@@ -618,6 +619,7 @@ pub struct ViewerApp {
     frame: FrameScheduler,
     metrics: FrameMetrics,
     seek_trace: SeekTrace,
+    load_trace: Option<(Instant, bool, bool, bool)>,
     _gpu_memory_lease: Option<MemoryLease>,
     gpu_memory_bytes: u64,
     gpu_diagnostics: bool,
@@ -817,6 +819,7 @@ impl ViewerApp {
             window: None,
             presenter: None,
             presenter_preference,
+            gpu_promotion_ready: false,
             scene: FrameScene::new(1, 1),
             pending_scroll_reuse: None,
             surface_suspended: false,
@@ -825,6 +828,7 @@ impl ViewerApp {
             frame: FrameScheduler::new(),
             metrics: FrameMetrics::default(),
             seek_trace: SeekTrace::default(),
+            load_trace: None,
             _gpu_memory_lease: None,
             gpu_memory_bytes: 0,
             gpu_diagnostics: matches!(
@@ -872,6 +876,19 @@ impl ViewerApp {
         Self::new(Arc::new(SyntheticEngine::new(10_000)), updates)
     }
 
+    /// Enable open-to-present diagnostics with `LIMINALDOC_LOAD_DIAGNOSTICS=1`.
+    /// The launcher passes a timestamp from before argument parsing and PDF open.
+    pub fn trace_document_load(&mut self, started: Instant) {
+        self.load_trace = (std::env::var("LIMINALDOC_LOAD_DIAGNOSTICS").as_deref() == Ok("1"))
+            .then_some((started, false, false, false));
+        if self.load_trace.is_some() {
+            eprintln!(
+                "viewer-load stage=app-ready elapsed_us={}",
+                started.elapsed().as_micros()
+            );
+        }
+    }
+
     /// Connect the desktop-only processing worker to this application's event
     /// loop. Keeping construction independent of winit makes viewer tests and
     /// headless renderer tools stay lightweight.
@@ -895,15 +912,113 @@ impl ViewerApp {
         self.scale_factor = window.scale_factor();
         let size = window.inner_size();
         self.resize(size.width, size.height, true);
+        // Start compilation/raster as soon as the real viewport is known.
+        self.publish_intent_if_needed();
 
-        self.presenter = Some(create_presenter(
-            self.presenter_preference,
-            window.clone(),
-            size.width.max(1),
-            size.height.max(1),
-        )?);
+        let mut software_start = cfg!(all(
+            feature = "softbuffer-presenter",
+            feature = "wgpu-presenter"
+        )) && self.presenter_preference == PresenterPreference::Auto
+            && self.processing_proxy.is_some();
+        self.presenter = Some(if software_start {
+            match create_software_presenter(window.clone(), size.width.max(1), size.height.max(1)) {
+                Ok(presenter) => presenter,
+                Err(error) => {
+                    eprintln!("Initial software presentation unavailable; trying GPU: {error}");
+                    software_start = false;
+                    create_presenter(
+                        self.presenter_preference,
+                        window.clone(),
+                        size.width.max(1),
+                        size.height.max(1),
+                    )?
+                }
+            }
+        } else {
+            create_presenter(
+                self.presenter_preference,
+                window.clone(),
+                size.width.max(1),
+                size.height.max(1),
+            )?
+        });
+        if let Some((started, ..)) = self.load_trace {
+            eprintln!(
+                "viewer-load stage=presenter-ready elapsed_us={}",
+                started.elapsed().as_micros()
+            );
+        }
         self.window = Some(window);
+        if software_start {
+            #[cfg(all(feature = "softbuffer-presenter", feature = "wgpu-presenter"))]
+            if let Some(proxy) = self.processing_proxy.clone() {
+                // Only adapter/device discovery runs here. In particular, WGPU
+                // surface creation/configuration must remain on the window thread.
+                if let Err(error) = std::thread::Builder::new()
+                    .name("reader-gpu-prepare".to_owned())
+                    .spawn(move || {
+                        let result = lege_gpu::compute::SharedGpuContext::get()
+                            .map(|_| ())
+                            .map_err(|error| error.to_string());
+                        let _ = proxy.send_event(ViewerEvent::GpuPrepared(result));
+                    })
+                {
+                    eprintln!("GPU preparation unavailable; keeping softbuffer: {error}");
+                }
+            }
+        }
         self.request_redraw();
+        Ok(())
+    }
+
+    fn promote_prepared_gpu(&mut self) -> Result<(), crate::present::PresentError> {
+        self.gpu_promotion_ready = false;
+        let Some(window) = self.window.clone() else {
+            return Ok(());
+        };
+        // Drop the software surface before creating/configuring another
+        // presentation surface for this window (especially on Wayland).
+        drop(self.presenter.take());
+        self.presenter = Some(
+            create_presenter(
+                PresenterPreference::Auto,
+                window,
+                self.scene.width,
+                self.scene.height,
+            )
+            .map_err(crate::present::PresentError::Backend)?,
+        );
+        // Transfer the already visible frame immediately, including full damage
+        // for a software fallback. Cached page pixels are shared by both paths.
+        self.frame_damage.clear();
+        self.frame_damage.push(self.scene.bounds());
+        if !self.present_scene()? {
+            // A newly configured GPU surface can skip its first acquisition.
+            // Keep the document visible rather than leaving a blank handoff.
+            eprintln!("GPU skipped its initial frame; keeping softbuffer");
+            let window = self.window.clone().ok_or_else(|| {
+                crate::present::PresentError::Backend(
+                    "missing window during presenter handoff".to_owned(),
+                )
+            })?;
+            self.presenter = None;
+            self.presenter = Some(
+                create_software_presenter(window, self.scene.width, self.scene.height)
+                    .map_err(crate::present::PresentError::Backend)?,
+            );
+            self.present_scene()?;
+        }
+        if self
+            .presenter
+            .as_ref()
+            .is_some_and(|presenter| presenter.backend() == PresenterBackend::Gpu)
+            && let Some((started, ..)) = self.load_trace
+        {
+            eprintln!(
+                "viewer-load stage=gpu-promoted elapsed_us={}",
+                started.elapsed().as_micros()
+            );
+        }
         Ok(())
     }
 
@@ -2038,6 +2153,10 @@ impl ViewerApp {
         if let Some(window) = &self.window {
             window.set_cursor(if self.hovered_link.is_some() {
                 CursorIcon::Pointer
+            } else if !self.measure.active
+                && self.text_position_at(self.input.pointer_position).is_some()
+            {
+                CursorIcon::Text
             } else {
                 CursorIcon::Default
             });
@@ -2410,6 +2529,9 @@ impl ViewerApp {
                     && let Some((position, substrate)) =
                         self.text_position_at(self.input.pointer_position)
                 {
+                    // Search owns Ctrl+C while its field is focused. A page
+                    // selection transfers keyboard focus to the document.
+                    self.set_search_open(false);
                     let click_count = self.next_click_count(self.input.pointer_position);
                     match click_count {
                         2 => self.selection.select_word(position, &substrate),
@@ -3814,11 +3936,14 @@ impl ViewerApp {
     /// Open `path`, asking for a password rather than failing when the
     /// document turns out to be encrypted.
     fn open_document_with_password(&mut self, path: &std::path::Path, password: Option<&str>) {
+        let started = Instant::now();
         match open_document_engine(path, password) {
             Ok(engine) => {
                 self.dismiss_password_prompt();
                 if let Err(error) = self.adopt_engine(engine) {
                     report_document_error(path, &error.to_string());
+                } else {
+                    self.trace_document_load(started);
                 }
             }
             Err(DocumentEngineError::PasswordRequired) => {
@@ -4044,6 +4169,9 @@ impl ViewerApp {
         let scrollbar = self.scrollbar_geometry();
         let memory_bytes = self.memory.total_bytes();
         let chrome_surfaces = self.render_chrome_surfaces(memory_bytes);
+        // Initial font shaping can outlast the first raster jobs. Pick up
+        // tiles that finished during chrome composition in this same frame.
+        self.refresh_tile_snapshot();
         let hover_preview = self
             .scrollbar
             .preview_visible()
@@ -4113,8 +4241,39 @@ impl ViewerApp {
             .sum();
         self.metrics.finish_compose();
 
-        self.present_scene()?;
+        let presented = self.present_scene()?;
         self.metrics.finish_present();
+        // Inspect this frame's retained images, not the concurrently updated cache.
+        let coverage = if presented && (self.load_trace.is_some() || self.gpu_promotion_ready) {
+            PresentedCoverage::from_images(
+                self.engine.descriptor().id,
+                &self.intent,
+                self.scene
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        crate::scene::SceneCommand::Image { tile, .. } => Some(tile.key),
+                        _ => None,
+                    }),
+            )
+        } else {
+            PresentedCoverage::default()
+        };
+        if presented && let Some((started, first, covered, exact)) = self.load_trace.as_mut() {
+            for (ready, reported, stage) in [
+                (coverage.any, first, "first-pixels"),
+                (coverage.covered, covered, "covered"),
+                (coverage.exact, exact, "exact"),
+            ] {
+                if ready && !*reported {
+                    *reported = true;
+                    eprintln!(
+                        "viewer-load stage={stage} elapsed_us={}",
+                        started.elapsed().as_micros()
+                    );
+                }
+            }
+        }
         let has_page_pixels = self.intent.visible_tiles.iter().any(|demand| {
             self.previews
                 .contains_variant(demand.page, self.layout.render_variant)
@@ -4153,15 +4312,25 @@ impl ViewerApp {
         };
         self.damage.clear();
         self.pending_scroll_reuse = None;
+        if presented
+            && self.gpu_promotion_ready
+            && (self.engine.descriptor().page_count == 0 || coverage.covered)
+        {
+            self.promote_prepared_gpu()?;
+        }
         Ok(())
     }
 
-    fn present_scene(&mut self) -> Result<(), crate::present::PresentError> {
-        let result = self.presenter.as_mut().map_or(Ok(()), |presenter| {
-            presenter.present(&self.scene, &self.frame_damage, self.pending_scroll_reuse)
+    fn present_scene(&mut self) -> Result<bool, crate::present::PresentError> {
+        let result = self.presenter.as_mut().map_or(Ok(false), |presenter| {
+            let frames = presenter.stats().frames_presented;
+            presenter
+                .present(&self.scene, &self.frame_damage, self.pending_scroll_reuse)
+                .map(|()| presenter.stats().frames_presented > frames)
         });
-        let Err(error) = result else {
-            return Ok(());
+        let error = match result {
+            Ok(presented) => return Ok(presented),
+            Err(error) => error,
         };
         let can_fallback = self.presenter_preference == PresenterPreference::Auto
             && self
@@ -4184,7 +4353,7 @@ impl ViewerApp {
         let full_damage = [self.scene.bounds()];
         presenter.present(&self.scene, &full_damage, None)?;
         self.presenter = Some(presenter);
-        Ok(())
+        Ok(true)
     }
 
     fn sync_presenter_stats(&mut self) {
@@ -5691,6 +5860,14 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
                 eprintln!("viewer background failure: {message}");
             }
             ViewerEvent::Processing(update) => self.apply_processing_update(update),
+            ViewerEvent::GpuPrepared(Ok(())) => {
+                self.gpu_promotion_ready = true;
+                self.damage.mark_full();
+                self.request_redraw();
+            }
+            ViewerEvent::GpuPrepared(Err(error)) => {
+                eprintln!("GPU preparation failed; keeping softbuffer: {error}");
+            }
         }
     }
 
@@ -6833,6 +7010,43 @@ mod tests {
         app
     }
 
+    #[test]
+    fn skipped_frames_do_not_report_document_visibility_or_promote_gpu() {
+        struct SkippedPresenter;
+        impl Presenter for SkippedPresenter {
+            fn resize(&mut self, _: u32, _: u32) -> Result<(), crate::present::PresentError> {
+                Ok(())
+            }
+            fn present(
+                &mut self,
+                _: &FrameScene,
+                _: &[RectI],
+                _: Option<ScrollReuse>,
+            ) -> Result<(), crate::present::PresentError> {
+                Ok(())
+            }
+            fn format(&self) -> crate::present::PixelFormat {
+                crate::present::PixelFormat::Xrgb8888
+            }
+            fn backend(&self) -> PresenterBackend {
+                PresenterBackend::Gpu
+            }
+        }
+        let mut app = headless_app(Arc::new(SyntheticEngine::new(1)));
+        app.presenter = Some(Box::new(SkippedPresenter));
+        app.load_trace = Some((Instant::now(), false, false, false));
+        app.gpu_promotion_ready = true;
+        app.resize(1280, 900, true);
+        app.compose().expect("skipped presentation is recoverable");
+        let (_, first, covered, exact) = app.load_trace.expect("trace");
+        assert!(!first && !covered && !exact);
+        assert!(
+            app.gpu_promotion_ready,
+            "a skipped frame must not trigger surface replacement"
+        );
+        assert!(!app.present_scene().expect("skipped frame"));
+    }
+
     fn press_key(app: &mut ViewerApp, text: &str, code: KeyCode) {
         app.handle_key(
             &Key::Character(text.into()),
@@ -7050,6 +7264,121 @@ mod tests {
         assert!((readings[0].y - readings[1].y).abs() < 1e-6);
         assert!((readings[0].x - 61.0).abs() < 1e-6);
         assert!((readings[0].y - 91.0).abs() < 1e-6);
+    }
+
+    #[cfg(feature = "pdf-engine")]
+    #[test]
+    fn pdf_selection_and_copy_through_the_conductor_and_pointer_handlers() {
+        use crate::document::pdf_engine::PdfEngine;
+        use pdf_test_support::builder::PdfBuilder;
+        use std::io::Write;
+
+        let mut builder = PdfBuilder::new();
+        builder.add_object(1, "<</Type/Catalog/Pages 2 0 R>>");
+        let kids = (10..30).map(|id| format!("{id} 0 R ")).collect::<String>();
+        builder.add_object(2, &format!("<</Type/Pages/Kids[{kids}]/Count 20>>"));
+        builder.add_object(4, "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>");
+        for id in 10..30 {
+            builder.add_object(id, "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>");
+        }
+        builder.add_stream(
+            5,
+            "",
+            b"BT /F1 20 Tf 72 700 Td (Select this text) Tj 0 -40 Td (Copy this too) Tj ET",
+        );
+        builder.finish_classic_xref("/Root 1 0 R");
+        let mut file = tempfile::NamedTempFile::new().expect("PDF fixture");
+        file.write_all(&builder.into_bytes()).expect("write PDF");
+        let mut app = headless_app(Arc::new(
+            PdfEngine::open(file.path(), None).expect("open PDF"),
+        ));
+        app.publish_intent_if_needed();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !app.page_artifacts.contains_key(&PageIndex(0)) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            app.drain_updates();
+        }
+        let placement = app.layout.placement(PageIndex(0)).expect("placement");
+        // Use PDF user coordinates, independently of the extracted geometry.
+        let from = screen_of(
+            &app,
+            placement.page_to_doc.apply(PointF { x: 72.0, y: 706.0 }),
+        );
+        let to = screen_of(
+            &app,
+            placement.page_to_doc.apply(PointF { x: 210.0, y: 666.0 }),
+        );
+        app.set_search_open(true);
+        app.handle_cursor_moved(from.x, from.y);
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left);
+        app.handle_cursor_moved(to.x, to.y);
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left);
+        assert_eq!(
+            app.selected_document_text(),
+            "Select this text\r\nCopy this too"
+        );
+        assert!(
+            !app.search_ui.open,
+            "document selection must take keyboard focus from search"
+        );
+        let text = &app.page_artifacts[&PageIndex(0)].text;
+        assert!(!app.selection.overlays(PageIndex(0), text).is_empty());
+
+        // Leaving the working set lets the UI evict a page's geometry.
+        // The conductor must publish it again when cached pixels are revisited.
+        app.navigate_to(
+            DocumentLocation {
+                page: PageIndex(19),
+                target_region: None,
+            },
+            false,
+        );
+        app.publish_intent_if_needed();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !app.page_artifacts.contains_key(&PageIndex(19)) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            app.drain_updates();
+        }
+        assert!(
+            app.page_artifacts.contains_key(&PageIndex(19)),
+            "destination page ready"
+        );
+        assert!(!app.intent.page_is_relevant(PageIndex(0)));
+        let pressure = app
+            .memory
+            .reserve(CacheCategory::Images, app.memory.budget_bytes());
+        app.evict_page_artifacts();
+        assert!(
+            !app.page_artifacts.contains_key(&PageIndex(0)),
+            "memory pressure evicts old geometry"
+        );
+        drop(pressure);
+        app.navigate_to(
+            DocumentLocation {
+                page: PageIndex(0),
+                target_region: None,
+            },
+            false,
+        );
+        app.publish_intent_if_needed();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !app.page_artifacts.contains_key(&PageIndex(0)) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            app.drain_updates();
+        }
+        assert!(
+            app.page_artifacts.contains_key(&PageIndex(0)),
+            "revisited PDF must retain selectable text"
+        );
+        app.last_click = None;
+        app.handle_cursor_moved(from.x, from.y);
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left);
+        app.handle_cursor_moved(to.x, to.y);
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left);
+        assert_eq!(
+            app.selected_document_text(),
+            "Select this text\r\nCopy this too"
+        );
     }
 
     /// Text selection on a rendered Markdown page through the real pointer

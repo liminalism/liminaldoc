@@ -153,6 +153,30 @@ record docwrite.observation.no-shaping-in-workspace/4 : observation {
     supersedes [ @docwrite.observation.no-shaping-in-workspace/3 ]
 }
 
+record docwrite.observation.pdf-startup-software-first/1 : observation {
+    title "Software-first Auto presentation removes GPU discovery from PDF visibility"
+    state verified
+    statement """
+        The reader Auto presenter previously blocked initial PDF intent publication on synchronous GPU device/pipeline construction: a cold hello launch reached exact pixels at 2072 ms. In the working tree atop 291f3732, the real viewport intent is published after initial resize, Auto presents through softbuffer while a worker calls lege_gpu::compute::SharedGpuContext::get, and GPU window-surface creation stays on the UI thread after fully covered real page content has been presented. Chrome shaping is followed by a fresh immutable tile snapshot so completed rasters enter that same frame. Explicit GPU remains synchronous; software/GPU creation errors retain fallback behavior. Load diagnostics require actual frame advancement and exclude synthetic TextFirst geometry, stale variants and other documents.
+        On this X11/NVIDIA machine, 33 release launches of 11 PDFs gave mean exact page visibility 278 ms versus 442 ms before; median 218 ms, max 592 ms. An 182 MB scan still spends about 400 ms in document opening, so 300 ms is an average, not a universal bound. Eight before/after final and preview raster checksums matched; 121 library and 35 architecture tests passed. Default desktop reader was updated to the validated release.
+        """
+    observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
+    method instrumented
+    watches [
+        "crates/liminal-reader/src/app.rs",
+        "crates/liminal-reader/src/diagnostics.rs",
+        "crates/liminal-reader/src/present/**",
+        "crates/liminal-reader/src/document/pdf_engine.rs",
+        "crates/liminal-reader/src/main.rs"
+    ]
+    derived_from [
+        @docwrite.evidence.pdf-startup-correctness/1,
+        @docwrite.evidence.pdf-startup-latency/2,
+        @docwrite.evidence.pdf-startup-measured/2
+    ]
+    author "dk"
+}
+
 record docwrite.observation.pdf-text-supports-source-passages/1 : observation {
     title "Lege's text extraction already supports page-anchored source passages"
     state superseded

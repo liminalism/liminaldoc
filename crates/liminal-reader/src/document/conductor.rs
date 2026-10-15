@@ -484,6 +484,10 @@ impl Conductor {
             .iter()
             .map(|demand| demand.page)
             .collect::<HashSet<_>>();
+        // The UI may discard text geometry independently of our compiled
+        // and raster caches. Publish it again when a page becomes visible.
+        self.published_pages
+            .retain(|page| visible_pages.contains(page));
         if latency_critical {
             for page in &visible_pages {
                 if let Some(state) = self.compile_states.get_mut(page) {
