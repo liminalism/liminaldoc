@@ -315,6 +315,16 @@ impl Editor {
     /// The pointer shape for where the pointer is now.
     pub fn pointer_shape(&self) -> PointerShape {
         let (x, y) = self.cursor;
+        if let Some(menu) = self.menu.as_ref() {
+            return if menu.row_at(x, y).is_some() {
+                PointerShape::Hand
+            } else {
+                PointerShape::Arrow
+            };
+        }
+        if self.scroll_grab.is_some() || self.scrollbar.is_some_and(|bar| bar.contains(x, y)) {
+            return PointerShape::Arrow;
+        }
         if !self.sidebar.dragging && y < self.toolbar_height() as f32 {
             return if self.button_at(x, y, self.frame_width).is_some() {
                 PointerShape::Hand

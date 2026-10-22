@@ -145,6 +145,48 @@ fn clicking_a_line_puts_the_caret_there() {
 }
 
 #[test]
+fn reopening_a_book_shows_the_page_the_caret_was_saved_on() {
+    let dir = scratch("reopen-caret");
+    let path = dir.join("Long.legebook");
+    let mut editor = Editor::open_or_create(&path).unwrap();
+    editor.paste_text(&"Typing resumes where it stopped, pages in. ".repeat(1500));
+    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    editor.paint(&mut frame);
+    let pages = editor.pager().pages();
+    assert!(pages > 10);
+    let target = pages / 2;
+    assert!(editor.seek_page(target));
+    editor.paint(&mut frame);
+    editor.save_now().unwrap();
+
+    let mut reopened = Editor::open_existing(&path).unwrap();
+    assert_eq!(reopened.book().selection(), editor.book().selection());
+    reopened.paint(&mut frame);
+    assert_eq!(
+        reopened.pager().page_top() + 1,
+        target,
+        "the first paint shows the caret's page"
+    );
+    reopened.type_text("x");
+    reopened.paint(&mut frame);
+    assert_eq!(reopened.pager().page_top() + 1, target);
+    assert!(reopened.book().plain_text().contains("x"));
+
+    // Ctrl+Home / Ctrl+End reach the ends of the book from anywhere.
+    reopened.move_document_end(false);
+    reopened.paint(&mut frame);
+    assert_eq!(reopened.pager().page_top() + 1, pages);
+    reopened.move_document_start(false);
+    reopened.paint(&mut frame);
+    // The first paragraph follows the chapter opening, on page one or two.
+    assert!(
+        reopened.pager().page_top() <= 1,
+        "{}",
+        reopened.pager().page_top()
+    );
+}
+
+#[test]
 fn a_new_book_saves_reopens_autosaves_and_exports() {
     let dir = scratch("files");
     let path = dir.join("Novel.legebook");

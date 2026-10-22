@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use docwrite_app::autosave::{self, AutosaveInterval};
 use docwrite_app::tabs::{DocumentTabs, TabCommand, TabStripLayout};
-use docwrite_app::{PromptKind, PromptMotion};
+use docwrite_app::{PromptKind, PromptMotion, RecentFiles};
 use docwrite_model::{Align, Mark};
 use pixelkit_shell::KeyInput;
 use pixelkit_shell::clipboard::Clipboard;
@@ -121,6 +121,15 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         editor.open_source(source).map_err(RunError::other)?;
     }
     let title = format!("{} — liminaldoc-writer", editor.book().title());
+    let recent_path = RecentFiles::settings_path();
+    let recent = match recent_path.as_deref().map(RecentFiles::load) {
+        Some(Ok(recent)) => recent,
+        Some(Err(error)) => {
+            eprintln!("liminaldoc-writer: cannot load recent files: {error}");
+            RecentFiles::new()
+        }
+        None => RecentFiles::new(),
+    };
     let autosave_settings = autosave::settings_path();
     let (autosave_interval, status) =
         match autosave_settings.as_deref().map(autosave::load_interval) {
@@ -132,7 +141,7 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
             Some(Ok(interval)) => (interval, None),
             None => (AutosaveInterval::default(), None),
         };
-    let app = EditorApp {
+    let mut app = EditorApp {
         tabs: DocumentTabs::new(editor),
         clipboard: Clipboard::new(),
         announced: false,
@@ -145,7 +154,13 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         content_buffer: pixelkit_raster::WindowBuffer::new(1, 1),
         last_title: String::new(),
         ui_scale: 1.0,
+        recent,
+        recent_path,
     };
+    match book {
+        Some(path) => app.remember(&path),
+        None => app.sync_recent(),
+    }
     let config =
         pixelkit_windowing::WindowConfig::new(&title, 1100.0, 800.0).min_size(640.0, 400.0);
     pixelkit_windowing::run_app(app, config).map_err(|err| {
@@ -173,9 +188,66 @@ struct EditorApp {
     content_buffer: pixelkit_raster::WindowBuffer,
     last_title: String,
     ui_scale: f32,
+    /// Files opened or saved recently, newest first, for the File menu.
+    recent: RecentFiles,
+    /// Where `recent` is kept between runs; `None` without a settings directory.
+    recent_path: Option<PathBuf>,
 }
 
 impl EditorApp {
+    /// Hand the recent list to every open tab's menu.
+    fn sync_recent(&mut self) {
+        let paths = self.recent.existing();
+        for editor in self.tabs.iter_mut() {
+            editor.set_recent_files(paths.clone());
+        }
+    }
+
+    /// Put `path` at the front of the recent list and persist it. Failure to
+    /// write the list is reported on stderr only; it never blocks the open.
+    fn remember(&mut self, path: &Path) {
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        self.recent.touch(path);
+        self.persist_recent();
+    }
+
+    fn forget(&mut self, path: &Path) {
+        self.recent.remove(path);
+        self.persist_recent();
+    }
+
+    fn persist_recent(&mut self) {
+        if let Some(store) = self.recent_path.as_deref()
+            && let Err(error) = self.recent.save(store)
+        {
+            eprintln!("liminaldoc-writer: cannot save recent files: {error}");
+        }
+        self.sync_recent();
+    }
+
+    fn open_recent(&mut self, index: usize) {
+        let Some(path) = self.recent.existing().get(index).cloned() else {
+            return;
+        };
+        if !path.exists() {
+            self.forget(&path);
+            self.report(Err(format!("{} no longer exists", path.display())));
+            return;
+        }
+        self.open_path(&path);
+    }
+
+    /// Open a document and, when it opened, remember it.
+    fn open_path(&mut self, path: &Path) {
+        if self.open_path_now(path) {
+            self.remember(path);
+        } else {
+            let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+            if self.recent.paths().contains(&absolute) && !path.exists() {
+                self.forget(&absolute);
+            }
+        }
+    }
     fn apply_autosave_request(&mut self) {
         let Some(interval) = self.tabs.take_autosave_request() else {
             return;
@@ -238,19 +310,21 @@ impl EditorApp {
         self.status = None;
     }
 
-    fn open_path(&mut self, path: &Path) {
+    /// Open a document in a tab (or bring its tab forward). Returns whether
+    /// the writer now shows it; a PDF goes to the reader and is not kept.
+    fn open_path_now(&mut self, path: &Path) -> bool {
         if path
             .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
         {
             self.open_pdf_in_reader(path);
-            return;
+            return false;
         }
         if let Some(index) = self.tabs.find_bundle(path) {
             self.tabs.select(index);
             self.status = None;
-            return;
+            return true;
         }
         match docwrite_app::Editor::open_document(path) {
             Ok(editor) => {
@@ -263,8 +337,12 @@ impl EditorApp {
                         path.display()
                     )));
                 }
+                true
             }
-            Err(err) => self.report(Err(err)),
+            Err(err) => {
+                self.report(Err(err));
+                false
+            }
         }
     }
 
@@ -344,6 +422,9 @@ impl EditorApp {
         match result {
             Ok(()) => {
                 self.report(Ok(format!("saved {}", path.display())));
+                if extension == "legebook" {
+                    self.remember(&path);
+                }
                 true
             }
             Err(err) => {
@@ -415,6 +496,14 @@ impl EditorApp {
             TabCommand::OpenBook => self.open_book_dialog(),
             TabCommand::SaveAs => {
                 self.save_as_dialog();
+            }
+            TabCommand::Save => {
+                self.save_active();
+            }
+            TabCommand::OpenRecent(index) => self.open_recent(index),
+            TabCommand::ClearRecent => {
+                self.recent.clear();
+                self.persist_recent();
             }
         }
     }
@@ -762,6 +851,23 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             self.status = None;
             return;
         }
+        if self.tabs.menu_key(&event.key) {
+            if let Some(command) = self.tabs.take_file_command() {
+                self.run_tab_command(command);
+            }
+            return;
+        }
+        // Alt+F opens the File menu where Alt is a menu key; on macOS
+        // Option types characters, so the menu is the toolbar's.
+        if !cfg!(target_os = "macos")
+            && event.modifiers.alt
+            && !event.modifiers.accel()
+            && !event.modifiers.control
+            && event.physical == "KeyF"
+        {
+            self.tabs.toggle_file_menu();
+            return;
+        }
         if self.prompt_key(event) {
             return;
         }
@@ -796,8 +902,16 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             KeyInput::Right if shift => self.tabs.extend_right(),
             KeyInput::Left => self.tabs.move_left(),
             KeyInput::Right => self.tabs.move_right(),
+            KeyInput::Up if modifiers.logo && cfg!(target_os = "macos") => {
+                self.tabs.move_document_start(shift)
+            }
+            KeyInput::Down if modifiers.logo && cfg!(target_os = "macos") => {
+                self.tabs.move_document_end(shift)
+            }
             KeyInput::Up => self.tabs.move_line(false, shift),
             KeyInput::Down => self.tabs.move_line(true, shift),
+            KeyInput::Home if word => self.tabs.move_document_start(shift),
+            KeyInput::End if word => self.tabs.move_document_end(shift),
             KeyInput::Home => self.tabs.move_home(shift),
             KeyInput::End => self.tabs.move_end(shift),
             KeyInput::PageDown => self.tabs.page(true, shift),
@@ -904,8 +1018,7 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             pixelkit_windowing::GesturePhase::Ended => docwrite_app::Phase::Ended,
             pixelkit_windowing::GesturePhase::Cancelled => docwrite_app::Phase::Cancelled,
         };
-        self.tabs
-            .scroll_gesture(-(event.pixel_dy as f64) / 400.0, phase);
+        self.tabs.scroll_wheel(event.pixel_dy, event.line_dy, phase);
     }
 }
 
@@ -933,6 +1046,8 @@ mod input_tests {
             content_buffer: pixelkit_raster::WindowBuffer::new(1, 1),
             last_title: String::new(),
             ui_scale: 1.0,
+            recent: RecentFiles::new(),
+            recent_path: None,
         }
     }
 
@@ -1225,13 +1340,19 @@ mod input_tests {
             app.tab_height, 0,
             "one manuscript uses the native title bar"
         );
-        let new = app
+        let file = app
             .tabs
             .toolbar_buttons(2200)
             .into_iter()
-            .find(|button| button.action == docwrite_app::Action::File(TabCommand::New))
+            .find(|button| button.action == docwrite_app::Action::FileMenu)
             .unwrap();
-        app.on_cursor((new.x + new.w / 2) as f32, (new.y + new.h / 2) as f32);
+        app.on_cursor((file.x + file.w / 2) as f32, (file.y + file.h / 2) as f32);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
+        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        let menu = app.tabs.file_menu().unwrap().clone();
+        let (top, h) = menu.row_rect(0).unwrap();
+        assert_eq!(menu.items[0].command, Some(TabCommand::New));
+        app.on_cursor((menu.x + 20) as f32, (top + h / 2) as f32);
         app.on_mouse(pixelkit_shell::MouseButton::Left, true);
         app.on_mouse(pixelkit_shell::MouseButton::Left, false);
         assert_eq!(app.tabs.len(), 2);

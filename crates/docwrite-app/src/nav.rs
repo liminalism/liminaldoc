@@ -98,6 +98,29 @@ impl Pager {
         self.origin = None;
     }
 
+    /// Move by `delta` pages without settling on a page afterwards: a
+    /// wheel notch or a scrollbar drag through dense text should stop where
+    /// the reader stops it.
+    pub fn scroll_by(&mut self, delta: f64) {
+        self.set_scroll(self.scroll + delta);
+    }
+
+    /// Put the top of the view at `scroll` pages, clamped to the document.
+    pub fn set_scroll(&mut self, scroll: f64) {
+        self.scroll = if scroll.is_finite() {
+            scroll
+        } else {
+            self.scroll
+        }
+        .clamp(0.0, self.last());
+        self.origin = None;
+    }
+
+    /// The largest scroll position: the last page top plus any tail.
+    pub fn max_scroll(&self) -> f64 {
+        self.last()
+    }
+
     /// `delta` is in pages. Positive moves toward later pages.
     pub fn scroll_gesture(&mut self, delta: f64, phase: Phase) {
         match phase {

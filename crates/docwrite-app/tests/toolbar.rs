@@ -36,7 +36,7 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
         .iter()
         .map(|button| button.action)
         .collect();
-    assert_eq!(expected.len(), 20);
+    assert_eq!(expected.len(), 18);
     for (width, scale) in [(640, 1.0), (1100, 1.0), (1100, 1.5), (1280, 2.0)] {
         editor.set_ui_scale(scale);
         let buttons = editor.toolbar_buttons(width);

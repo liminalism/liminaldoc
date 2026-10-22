@@ -1,6 +1,17 @@
 akr 0.1
 project lege-docwrite
 
+record docwrite.papercut.adding-a-file-toolbar-label-the-writer-s-ui/1 : papercut {
+    title "Adding a \"File ▾\" toolbar label: the writer's UI face has no U+25BE…"
+    state verified
+    statement """
+        Adding a "File ▾" toolbar label: the writer's UI face has no U+25BE glyph, so the triangle rendered as a tofu box in the headless snapshot. Toolbar labels must stay within the loaded family's coverage (plain ASCII plus the few symbols already used); there is no fallback face for chrome text.
+        """
+    observed_at git:a4968e4bd909e741dfd5ff95feb5c27faa0f4b3b
+    author "claude"
+    created_at 2026-10-22
+}
+
 record docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 : papercut {
     title "Advisor packet listed pixelkit/** under ecosystem root, but that…"
     state verified

@@ -1,5 +1,7 @@
 //! Paint the editor without a window and save the frame as a PNG:
-//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT] [--prompt TEXT] [--go-to-page]`
+//! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT] [--prompt TEXT] [--go-to-page] [--menu]`
+//!
+//! `--menu` opens the File menu over a sample recent-files list.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -74,6 +76,17 @@ fn main() {
     }
     if args.iter().any(|arg| arg == "--go-to-page") {
         editor.open_prompt(docwrite_app::PromptKind::GoToPage);
+    }
+    if args.iter().any(|arg| arg == "--menu") {
+        editor.set_recent_files(vec![
+            std::path::PathBuf::from(book.as_str()),
+            std::path::PathBuf::from("/home/writer/Documents/Drafts/The-Long-Winter.legebook"),
+            std::path::PathBuf::from("/home/writer/Documents/notes/outline.md"),
+        ]);
+        editor.open_file_menu();
+        let menu = editor.file_menu().expect("menu").clone();
+        let (top, h) = menu.row_rect(7).expect("row");
+        editor.hover((menu.x + 20) as f32, (top + h / 2) as f32);
     }
     editor.paint(&mut frame);
     pixelkit_raster::png::write(out.as_str(), &frame).expect("write png");

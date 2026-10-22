@@ -831,6 +831,31 @@ record docwrite.evidence.writer-compact-window/1 : evidence {
     author "dk"
 }
 
+record docwrite.evidence.writer-open-recent-scroll-tests/1 : evidence {
+    title "Working tree atop a4968e4b: 79 docwrite-app tests passed, 0 failed, including reopening_a_book_shows_the_page_the_caret_was_saved_on (caret page painted first, typing lands there, Ctrl+Home/End reach book ends), menu tests (commands then recents, digit and arrow selection, outside click closes without moving the caret, long labels shortened), recent tests (touch dedupes and caps at 10, save/load round-trip newest first, existing() filters), scrollbar tests (five X11 wheel notches reach 0.5 page without snapping, three trackpad Moved steps total 0.9 then Ended settles on 1.0, thumb drag reaches the last page and the middle without moving the caret, track clicks page). Workspace all-target check passed; clippy on docwrite-app shows only the warnings already present at HEAD; git diff --check clean."
+    state verified
+    result pass
+    method command
+    observed_at git:a4968e4bd909e741dfd5ff95feb5c27faa0f4b3b
+    command "cargo test -p docwrite-app"
+    summary """
+        Working tree atop a4968e4b: 79 docwrite-app tests passed, 0 failed, including reopening_a_book_shows_the_page_the_caret_was_saved_on (caret page painted first, typing lands there, Ctrl+Home/End reach book ends), menu tests (commands then recents, digit and arrow selection, outside click closes without moving the caret, long labels shortened), recent tests (touch dedupes and caps at 10, save/load round-trip newest first, existing() filters), scrollbar tests (five X11 wheel notches reach 0.5 page without snapping, three trackpad Moved steps total 0.9 then Ended settles on 1.0, thumb drag reaches the last page and the middle without moving the caret, track clicks page). Workspace all-target check passed; clippy on docwrite-app shows only the warnings already present at HEAD; git diff --check clean.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.writer-open-recent-scroll-window/1 : evidence {
+    title "Debug liminaldoc-writer launched on the Wayland session (templar-comp, WAYLAND_DISPLAY=wayland-0) with a copy of the kept 200-page Lorem bundle and XDG_CONFIG_HOME pointed at a scratch directory: stderr reported \"paged surface: 200 pages\" with desk, page and ink pixels, and liminaldoc/recent-files was written containing the bundle's absolute path. No input was injected into the desktop. Headless snapshot renders at 1x and 2x (kept under .agent/scratch/writer-file-menu) show the File menu with command rows, shortcuts, a Recent section with three entries and digit shortcuts, Clear Recent, the highlighted row, and the right-edge scrollbar thumb at page 100 and 150 of 200 with the page counter intact."
+    state verified
+    result pass
+    method observation
+    observed_at git:a4968e4bd909e741dfd5ff95feb5c27faa0f4b3b
+    summary """
+        Debug liminaldoc-writer launched on the Wayland session (templar-comp, WAYLAND_DISPLAY=wayland-0) with a copy of the kept 200-page Lorem bundle and XDG_CONFIG_HOME pointed at a scratch directory: stderr reported "paged surface: 200 pages" with desk, page and ink pixels, and liminaldoc/recent-files was written containing the bundle's absolute path. No input was injected into the desktop. Headless snapshot renders at 1x and 2x (kept under .agent/scratch/writer-file-menu) show the File menu with command rows, shortcuts, a Recent section with three entries and digit shortcuts, Clear Recent, the highlighted row, and the right-edge scrollbar thumb at page 100 and 150 of 200 with the page counter intact.
+        """
+    author "dk"
+}
+
 record docwrite.evidence.writer-page-seek-behavior/1 : evidence {
     title "Working tree based on c1e92b1: all 61 writer tests and the workspace all-targets check passed. Coverage includes Ctrl/Cmd+G dispatch, F3 repeat search, page-key navigation, destination-page insertion, invalid/empty input, cancellation, fullscreen preservation and blank recto padding. A fullscreen Go to Page snapshot at page 10 of a 19-page demo was visually inspected: one temporary prompt row and a page/total status. Blank or generated-only pages preserve the prior insertion point while showing the requested physical page."
     state verified

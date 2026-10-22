@@ -4,9 +4,12 @@ pub mod autosave;
 mod commands;
 mod document_io;
 mod map;
+pub mod menu;
 mod nav;
 mod prompt;
+pub mod recent;
 mod research;
+mod scrollbar;
 pub mod tabs;
 mod toolbar;
 mod trace;
@@ -20,9 +23,12 @@ use std::time::{Duration, Instant};
 use commands::PageSlot;
 
 pub use map::{BookMap, MapKind, MapRow, SIDEBAR_W};
+pub use menu::{FileMenu, MenuItem};
 pub use nav::{Pager, Phase};
 pub use prompt::{Prompt, PromptMotion};
+pub use recent::RecentFiles;
 pub use research::SourceAction;
+pub use scrollbar::{SCROLLBAR_W, ScrollbarLayout};
 pub use toolbar::{Action, Button, PromptKind, TOOLBAR_H};
 pub use trace::{FrameMetrics, InputTrace, ReplayStep, TraceCommand};
 use view::Sidebar;
@@ -133,6 +139,21 @@ pub struct Editor {
     research: Option<research::Research>,
     /// Page count of the document the last [`Self::paint`] laid out.
     pages_painted: u32,
+    /// The File menu, while it is open.
+    menu: Option<menu::FileMenu>,
+    /// Recently opened files the menu lists, newest first.
+    recent: Vec<PathBuf>,
+    /// Running total of a trackpad gesture, in pages, while one is under way.
+    gesture: Option<f64>,
+    /// Where the last paint put the scrollbar.
+    scrollbar: Option<ScrollbarLayout>,
+    /// Pointer offset from the thumb's top while the thumb is dragged.
+    scroll_grab: Option<f32>,
+    /// Height of one page row plus its gap, in window pixels, as of the
+    /// last paint. Converts pixel scrolling into pages.
+    row_pitch: f64,
+    /// Pages per row the last paint drew (two in spread view).
+    per_row: u32,
 }
 
 impl Editor {
@@ -190,6 +211,13 @@ impl Editor {
             frame_height: 0,
             research: None,
             pages_painted: 0,
+            menu: None,
+            recent: Vec::new(),
+            gesture: None,
+            scrollbar: None,
+            scroll_grab: None,
+            row_pitch: 800.0,
+            per_row: 1,
         }
     }
 
@@ -224,6 +252,8 @@ impl Editor {
     /// this on cursor motion.
     pub fn hover(&mut self, x: f32, y: f32) {
         self.cursor = (x, y);
+        self.menu_hover(x, y);
+        self.scrollbar_drag(y);
         self.drag_sidebar(x);
         self.research_drag(x, y);
     }
@@ -233,6 +263,12 @@ impl Editor {
     pub fn pointer(&mut self, pressed: bool) {
         // A click goes where it lands; it never returns to a footnote anchor.
         self.abandon_footnote();
+        if self.menu_pointer(pressed) {
+            return;
+        }
+        if self.scrollbar_pointer(pressed) {
+            return;
+        }
         if self.sidebar.dragging && self.sidebar_pointer(pressed) {
             return;
         }
@@ -471,7 +507,7 @@ impl Editor {
         self.frame_width = width;
         self.frame_height = height;
         let content_left = self.sidebar_width().min(width - 1);
-        let content_w = (width - content_left - self.pane_width()).max(1);
+        let content_w = (width - content_left - self.pane_width() - self.scrollbar_width()).max(1);
         let (trim_w, trim_h) = self
             .document
             .as_ref()
@@ -494,6 +530,8 @@ impl Editor {
         let max_w = ((content_w - 2 * gap) / per_row).max(1);
         let max_h = (height - bar - status_h - 2 * gap).max(1);
         let (page_w, page_h) = fit_page_size(trim_w, trim_h, max_w, max_h);
+        self.row_pitch = f64::from((page_h + gap).max(1));
+        self.per_row = per_row as u32;
         let visible_page_height = (height - bar - gap).max(1);
         let tail = ((page_h - visible_page_height).max(0) as f64
             / f64::from((page_h + gap).max(1)))
@@ -588,6 +626,7 @@ impl Editor {
                 }
             }
         } else {
+            self.paint_scrollbar(&mut painter);
             if let Some(face) = face {
                 self.paint_research(&mut painter, face, width, height);
                 let pages = self.pages_painted;
@@ -598,6 +637,10 @@ impl Editor {
             } else {
                 self.paint_sidebar(&mut painter, height, face);
             }
+        }
+        if let Some(face) = face {
+            // The menu sits over everything, the status line included.
+            self.paint_file_menu(&mut painter, face);
         }
         self.document = document;
     }
@@ -1147,8 +1190,11 @@ impl Editor {
         self.page(false, false);
     }
 
-    /// Scroll by `delta` pages in a gesture; the view settles on a page when it ends.
+    /// Scroll by `delta` pages in a gesture; `delta` is the gesture's total
+    /// from its start, and the view settles on a page when it ends. Window
+    /// input goes through [`Self::scroll_wheel`], which does the totalling.
     pub fn scroll_gesture(&mut self, delta: f64, phase: Phase) {
+        self.gesture = None;
         self.pager.scroll_gesture(delta, phase);
     }
 }

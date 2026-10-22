@@ -2,10 +2,10 @@ akr-lock 0.1
 project lege-docwrite
 
 build {
-    tool "akr 0.5.1"
+    tool "akr 0.5.2"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:49e4861fd9c9578ecff72e8803c4bcd04c3838f877c19142196719168dc47603"
+    source_graph "sha256:5d37e370bd352595a39d12f5466b8ccd158fa692b517d1d3f6726c18fc45b93c"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:acdfc3bef1aa3b573586773486dc8c5682ae69be6f42eb45e16647ba8e10b6d6"
-    records 70
+    hash "sha256:6a606cffe2cc3e8a5c98107ece5805b13c41c8f774cc8a9f8d5b8831b93cea0a"
+    records 72
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -34,8 +34,8 @@ source ".akr/records/docwrite/observations.akr" {
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:6ef8bb8b221857f3ae5c1df05febc3b67664591a7d340217f0d335f43c797b8b"
-    records 37
+    hash "sha256:ac7962f792c1ea14f5f8526ca878bad1b9980efe060f095f7535474e8a38acaa"
+    records 38
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:5d905701f86febd6cd736f5b6d38292333d6daffe43c6dda1765cc5f9d8e9ec8"
-    records 33
+    hash "sha256:f9dd8eebdcd70f67a154ace3dc7c737d47f432d23c08377d5395260a0ac03cdf"
+    records 34
 }
 
 source ".akr/records/lege/work.akr" {
@@ -544,6 +544,30 @@ resolution @docwrite.work.writer-autosave-interval/1 {
     hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
 }
 
+resolution @docwrite.work.writer-open-recent-scroll/1 {
+    slot derived_from
+    to @docwrite.observation.writer-200-page-exercise/1
+    hash "sha256:b719e1e76540b36d74ea83b14f329c1be70e4be1fc77b135213248535f26356e"
+}
+
+resolution @docwrite.work.writer-open-recent-scroll/1 {
+    slot derived_from
+    to @docwrite.work.liminaldoc-native-menus/1
+    hash "sha256:a08958438dfa6bd66db8c204150ddb3bb9accb04ecf9d93a30c410350d7a325c"
+}
+
+resolution @docwrite.work.writer-open-recent-scroll/1 {
+    slot implements
+    to @docwrite.req.minimal-writer-navigation/1
+    hash "sha256:41f8cfa36eef3b7de323775db95e13748b944294c24094a2d2f369909ea9184c"
+}
+
+resolution @docwrite.work.writer-open-recent-scroll/1 {
+    slot part_of
+    to @docwrite.milestone.m6-writer-ready/1
+    hash "sha256:86782affc4bb90eece1fc9855b0e5d8517f2890067f726287dde75ea25322222"
+}
+
 resolution @docwrite.work.writer-page-seek/1 {
     slot implements
     to @docwrite.req.exact-page-navigation/1
@@ -965,6 +989,16 @@ seal @docwrite.evidence.writer-compact-window/1 {
     hash "sha256:b86648f3aff58782e4d3c2758fd0e9a89d34049b4bda31aa7b1c4163bcc1b9a6"
 }
 
+seal @docwrite.evidence.writer-open-recent-scroll-tests/1 {
+    state verified
+    hash "sha256:abddf1844a5c379bdad5e127929ce9a9f8111401ecc3fef26ec1cc1ce48560bd"
+}
+
+seal @docwrite.evidence.writer-open-recent-scroll-window/1 {
+    state verified
+    hash "sha256:e8e026d5aade11767fe0188f94f6bc6fc2f025e1ca3abc84cd2b14caa17eaad2"
+}
+
 seal @docwrite.evidence.writer-page-seek-behavior/1 {
     state verified
     hash "sha256:40b1f9f28e855ff9672c8a244497824abcdd41b9fa2b48dfd508c1d7394e3edb"
@@ -1203,6 +1237,11 @@ seal @docwrite.observation.zz-test/1 {
 seal @docwrite.observation.zz-test/2 {
     state withdrawn
     hash "sha256:95d18d80d26f961d1c99b47495ee08330750227f325b4fdd4e6d23b59d09152d"
+}
+
+seal @docwrite.papercut.adding-a-file-toolbar-label-the-writer-s-ui/1 {
+    state verified
+    hash "sha256:aa4c799d405f460c62068bbfa812ee9a413293321eba84b7ec2691336781eb89"
 }
 
 seal @docwrite.papercut.advisor-packet-listed-pixelkit-under-ecosystem/1 {
@@ -1488,6 +1527,11 @@ seal @docwrite.work.writer-200-page-exercise/1 {
 seal @docwrite.work.writer-autosave-interval/1 {
     state completed
     hash "sha256:3f2d71779255b1392a5826124cdf8f794d6abfc040d2e60fe1248167a694d065"
+}
+
+seal @docwrite.work.writer-open-recent-scroll/1 {
+    state completed
+    hash "sha256:4cb7a81ece69da064675d2ba7108157eb2f8e5d06e75702b1307b4fc9f8755bd"
 }
 
 seal @docwrite.work.writer-page-seek/1 {

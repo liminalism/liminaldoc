@@ -38,6 +38,12 @@ impl AutosaveInterval {
 
 /// Platform user configuration location; no directory is created until changed.
 pub fn settings_path() -> Option<PathBuf> {
+    settings_dir().map(|dir| dir.join("autosave-minutes"))
+}
+
+/// The writer's per-user settings directory (`liminaldoc` under the
+/// platform configuration root). Nothing is created until a setting is written.
+pub fn settings_dir() -> Option<PathBuf> {
     let env_path = |name| {
         std::env::var_os(name)
             .filter(|v| !v.is_empty())
@@ -52,7 +58,7 @@ pub fn settings_path() -> Option<PathBuf> {
             .filter(|path| path.is_absolute())
             .or_else(|| env_path("HOME").map(|home| home.join(".config")))
     }?;
-    Some(root.join("liminaldoc").join("autosave-minutes"))
+    Some(root.join("liminaldoc"))
 }
 
 /// Read the saved interval, defaulting to 15 minutes when no preference exists.

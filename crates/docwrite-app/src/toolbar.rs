@@ -23,6 +23,8 @@ const KINDS: [(&str, BlockKind); 7] = [
 /// Something the toolbar can do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// Open the File menu.
+    FileMenu,
     /// A file command handled by the window host.
     File(crate::tabs::TabCommand),
     /// Toggle a character mark.
@@ -186,14 +188,21 @@ impl Editor {
             });
             x += w + s.round().max(1.0) as i32;
         };
-        for (command, label, wide, narrow) in [
-            (TabCommand::New, "New", 30.0, 24.0),
-            (TabCommand::Open, "Open", 34.0, 28.0),
-            (TabCommand::OpenBook, "Book", 34.0, 28.0),
-            (TabCommand::SaveAs, "Save as", 48.0, 38.0),
-        ] {
-            push(Action::File(command), label.into(), false, wide, narrow);
-        }
+        // Plain "File": the UI face has no triangle glyph.
+        push(
+            Action::FileMenu,
+            "File".into(),
+            self.menu.is_some(),
+            36.0,
+            30.0,
+        );
+        push(
+            Action::File(TabCommand::Save),
+            "Save".into(),
+            false,
+            36.0,
+            30.0,
+        );
         for (mark, label, wide, narrow) in [
             (Mark::Bold, "B", 20.0, 16.0),
             (Mark::Italic, "I", 20.0, 16.0),
@@ -280,6 +289,7 @@ impl Editor {
     /// Run a toolbar action.
     pub fn run_action(&mut self, action: Action) {
         match action {
+            Action::FileMenu => self.toggle_file_menu(),
             Action::File(command) => self.file_command = Some(command),
             Action::Mark(mark) => self.toggle_mark(mark),
             Action::CycleStyle => self.cycle_block_style(),

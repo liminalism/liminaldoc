@@ -18,6 +18,12 @@ pub enum TabCommand {
     OpenBook,
     /// Choose a manuscript or export destination.
     SaveAs,
+    /// Save the active manuscript to its bundle (or ask where, the first time).
+    Save,
+    /// Open the entry at this index of the recent-files list.
+    OpenRecent(usize),
+    /// Forget every recent file.
+    ClearRecent,
 }
 
 /// Shared drawing and hit geometry for the strip above the editor.

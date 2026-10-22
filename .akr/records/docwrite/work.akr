@@ -451,6 +451,58 @@ record docwrite.work.writer-autosave-interval/1 : work {
     author "dk"
 }
 
+record docwrite.work.writer-open-recent-scroll/1 : work {
+    title "Open and type: caret page on reopen, File menu with recent files, free scrolling"
+    state completed
+    scope [ path "crates/docwrite-app/**" ]
+    intent """
+        Make the writer immediate for long manuscripts: open the program, load a file, start typing. Reopening a bundle paints the page the caret was saved on, so typing resumes there. A PixelKit-drawn File menu (toolbar File button, Alt+F outside macOS) holds New, Open, Open Book Folder, Save, Save As/Export and a persistent recent-files list (settings dir recent-files, newest first, ten entries, missing paths hidden, digits 1-9 open entries). Scrolling through dense text: X11 wheel notches move the view a tenth of a page and leave it there instead of snapping; trackpad gestures total their per-event deltas (previously each Moved replaced the total, so trackpad scrolling jittered and snapped back); a right-edge scrollbar shows position, drags the view and pages on track clicks; Ctrl+Home/Ctrl+End (Cmd+Up/Down on macOS) reach the ends of the book.
+        """
+    note """
+        The four separate New/Open/Book/Save-as toolbar buttons became File + Save, as the native-menus scoping note asked (audit redundant routes, keep keyboard access). Native platform menus remain future work under docwrite.work.liminaldoc-native-menus.
+        """
+    acceptance {
+        check dense-scrolling {
+            statement """
+                Wheel notches scroll freely without snapping, phased gestures total their deltas then settle on a page, and the scrollbar drags the view and pages on track clicks without moving the caret.
+                """
+            method command
+            command "cargo test -p docwrite-app --lib scrollbar"
+            verified_by [ @docwrite.evidence.writer-open-recent-scroll-tests/1 ]
+        }
+        check file-menu-recent {
+            statement """
+                The File menu lists file commands and recent files, keyboard and pointer choose entries, and the recent list round-trips through the settings file in newest-first order.
+                """
+            method command
+            command "cargo test -p docwrite-app --lib menu recent"
+            verified_by [ @docwrite.evidence.writer-open-recent-scroll-tests/1 ]
+        }
+        check live-window {
+            statement """
+                The real writer window opens the 200-page bundle, reports 200 painted pages, and writes the recent-files store under the settings directory.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.writer-open-recent-scroll-window/1 ]
+        }
+        check open-and-type {
+            statement """
+                Reopening a saved bundle paints the caret's saved page on the first paint and typing lands there without any navigation.
+                """
+            method command
+            command "cargo test -p docwrite-app --test commands reopening_a_book_shows_the_page_the_caret_was_saved_on"
+            verified_by [ @docwrite.evidence.writer-open-recent-scroll-tests/1 ]
+        }
+    }
+    derived_from [
+        @docwrite.observation.writer-200-page-exercise,
+        @docwrite.work.liminaldoc-native-menus
+    ]
+    implements [ @docwrite.req.minimal-writer-navigation ]
+    part_of [ @docwrite.milestone.m6-writer-ready ]
+    author "dk"
+}
+
 record docwrite.work.writer-page-seek/1 : work {
     title "Seek by page number and keep long-book paging predictable"
     state completed

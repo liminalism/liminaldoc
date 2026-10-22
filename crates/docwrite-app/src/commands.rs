@@ -76,6 +76,9 @@ impl Editor {
         let mut editor = Self::with_book(book);
         editor.open_bundle(path);
         editor.dirty = fresh;
+        // The first paint shows the page the caret was saved on, so typing
+        // can continue where it stopped.
+        editor.follow_caret = true;
         Ok(editor)
     }
 
@@ -85,6 +88,7 @@ impl Editor {
         let book = Book::load_bundle(&path).map_err(|err| err.to_string())?;
         let mut editor = Self::with_book(book);
         editor.open_bundle(path);
+        editor.follow_caret = true;
         Ok(editor)
     }
 
@@ -278,6 +282,21 @@ impl Editor {
             self.book.move_caret(motion)
         };
         self.follow_caret = true;
+    }
+
+    /// Move to the start of the first paragraph of the book.
+    pub fn move_document_start(&mut self, extend: bool) {
+        if let Some(first) = self.book.block_ids().first().copied() {
+            self.set_focus(Position::new(first, 0), extend);
+        }
+    }
+
+    /// Move to the end of the last paragraph of the book.
+    pub fn move_document_end(&mut self, extend: bool) {
+        if let Some(last) = self.book.block_ids().last().copied() {
+            let len = self.book.block_len(last).unwrap_or(0);
+            self.set_focus(Position::new(last, len), extend);
+        }
     }
 
     /// Move to the start of the caret's paragraph.
