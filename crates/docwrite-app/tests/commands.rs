@@ -149,11 +149,11 @@ fn reopening_a_book_shows_the_page_the_caret_was_saved_on() {
     let dir = scratch("reopen-caret");
     let path = dir.join("Long.legebook");
     let mut editor = Editor::open_or_create(&path).unwrap();
-    editor.paste_text(&"Typing resumes where it stopped, pages in. ".repeat(1500));
+    editor.paste_text(&"Typing resumes where it stopped, pages in.\n".repeat(1500));
     let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     let pages = editor.pager().pages();
-    assert!(pages > 10);
+    assert!(pages > 10, "{pages} pages");
     let target = pages / 2;
     assert!(editor.seek_page(target));
     editor.paint(&mut frame);

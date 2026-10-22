@@ -242,7 +242,7 @@ mod tests {
 
     fn long_book() -> Editor {
         let mut editor = Editor::new_document("Long");
-        editor.paste_text(&"Dense text that fills page after page of the book. ".repeat(1500));
+        editor.paste_text(&"Dense text that fills page after page of the book.\n".repeat(1500));
         editor.move_document_start(false);
         editor.refresh_layout();
         assert!(

@@ -176,7 +176,8 @@ fn small_caps_are_synthesized_when_the_font_has_none() {
 #[test]
 fn direct_alignment_overrides_the_style() {
     let mut book = Book::new("Align");
-    book.insert("Opening words.\nA short centered line.\nClosing words.").unwrap();
+    book.insert("Opening words.\nA short centered line.\nClosing words.")
+        .unwrap();
     let second = book.block_ids()[1];
     book.set_align(second, Some(Align::Center)).unwrap();
     let lines = lines_of(&book, "A short centered");

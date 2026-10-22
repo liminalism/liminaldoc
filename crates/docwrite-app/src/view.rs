@@ -232,11 +232,16 @@ impl Editor {
 
     /// The Book Map's width in logical pixels (zero when folded away).
     pub fn sidebar_logical_width(&self) -> f32 {
-        if self.sidebar.collapsed {
+        if self.sidebar.collapsed || !self.has_map() {
             0.0
         } else {
             self.sidebar.width
         }
+    }
+
+    /// Whether the Book Map shows at all: only once the book has a structure.
+    pub fn has_map(&self) -> bool {
+        self.book.has_structure()
     }
 
     fn collapse_sidebar(&mut self) {
@@ -254,7 +259,7 @@ impl Editor {
 
     /// The Book Map's width in window pixels; zero when folded or in full screen.
     pub(crate) fn sidebar_width(&self) -> i32 {
-        if self.fullscreen || self.sidebar.collapsed {
+        if self.fullscreen || self.sidebar.collapsed || !self.has_map() {
             return 0;
         }
         (self.sidebar.width * self.ui_scale).round() as i32
@@ -262,6 +267,7 @@ impl Editor {
 
     fn near_sidebar_edge(&self, x: f32) -> bool {
         !self.fullscreen
+            && self.has_map()
             && !self.sidebar.collapsed
             && (x - self.sidebar_width() as f32).abs() <= HANDLE * self.ui_scale
     }
@@ -269,6 +275,7 @@ impl Editor {
     fn on_tab(&self, x: f32, y: f32) -> bool {
         let s = self.ui_scale;
         !self.fullscreen
+            && self.has_map()
             && self.sidebar.collapsed
             && x < TAB_W * s
             && y >= TAB_TOP * s

@@ -29,6 +29,7 @@ fn drag(editor: &mut Editor, from: f32, to: f32) {
 #[test]
 fn the_book_map_resizes_folds_into_a_tab_and_comes_back() {
     let mut editor = Editor::new();
+    editor.new_chapter("Two");
     painted(&mut editor);
     let start = editor.sidebar_logical_width();
     editor.hover(start, 300.0);
@@ -203,4 +204,25 @@ fn font_families_cycle_and_reshape_the_book() {
         names[1..].contains(&first),
         "cycling returns to {first}: {names:?}"
     );
+}
+
+#[test]
+fn the_book_map_waits_for_a_structure_and_chapters_stay_blank() {
+    let mut editor = Editor::new();
+    painted(&mut editor);
+    assert!(!editor.has_map());
+    assert_eq!(editor.sidebar_logical_width(), 0.0);
+    editor.new_chapter("Two");
+    painted(&mut editor);
+    assert!(editor.has_map());
+    assert!(editor.sidebar_logical_width() > 0.0);
+    // The titles are inferred for the map, never written onto the pages.
+    let document = editor.document().unwrap();
+    for page in 1..=document.page_count() {
+        let text = document.page_texts(page).concat();
+        assert!(
+            !text.contains("Two") && !text.contains("Chapter 1"),
+            "page {page} holds {text:?}"
+        );
+    }
 }

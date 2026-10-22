@@ -46,13 +46,18 @@ fn entries(document: &Document) -> Vec<(String, u32)> {
 }
 
 fn opens_on(document: &Document, title: &str) -> u32 {
+    // Chapter titles are not set on the page; each chapter opens a page whose
+    // first line is the same opening line of its prose.
+    let index = ["Chapter 1", "The Clerk", "Bundles"]
+        .iter()
+        .position(|candidate| *candidate == title)
+        .unwrap_or_else(|| panic!("unknown chapter {title}"));
+    let opening = (2..=document.page_count())
+        .find_map(|page| document.page_texts(page).first().cloned())
+        .unwrap();
     (2..=document.page_count())
-        .find(|page| {
-            document
-                .page_texts(*page)
-                .first()
-                .is_some_and(|line| line == title)
-        })
+        .filter(|page| document.page_texts(*page).first() == Some(&opening))
+        .nth(index)
         .unwrap_or_else(|| panic!("{title} opens no page"))
 }
 

@@ -122,6 +122,10 @@ fn an_endnote_keeps_its_slot() {
 fn a_click_abandons_without_returning_and_a_prompt_returns() {
     let mut editor = Editor::new();
     editor.type_text("First line.\nSecond line.\nThird line.");
+    // The Book Map only shows once the book has a structure.
+    editor.new_chapter("Two");
+    editor.go_to_chapter(editor.book().parts()[0].chapters()[0].id());
+    editor.move_document_end(false);
     let anchor = editor.book().selection();
     frame(&mut editor);
     assert!(editor.start_footnote());
@@ -157,10 +161,7 @@ fn a_click_abandons_without_returning_and_a_prompt_returns() {
     // A prompt returns to the anchor instead.
     editor
         .book_mut()
-        .set_selection(Selection::collapsed(Position::new(
-            anchor.focus.block,
-            0,
-        )))
+        .set_selection(Selection::collapsed(Position::new(anchor.focus.block, 0)))
         .unwrap();
     assert!(editor.start_footnote());
     editor.open_prompt(PromptKind::Find);

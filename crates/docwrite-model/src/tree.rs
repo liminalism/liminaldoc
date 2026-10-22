@@ -460,6 +460,23 @@ impl Book {
             .join("\n")
     }
 
+    /// Whether the book has a structure worth mapping: several chapters, a
+    /// named section, or a title or subhead the author wrote. A fresh
+    /// single-chapter manuscript has none.
+    pub fn has_structure(&self) -> bool {
+        let mut chapters = self.parts.iter().flat_map(|part| part.chapters.iter());
+        let count = chapters.clone().count();
+        count > 1
+            || chapters.any(|chapter| {
+                chapter.sections.iter().any(|section| {
+                    !section.heading.is_empty()
+                        || section.blocks.iter().any(|block| {
+                            matches!(block.kind(), BlockKind::ChapterTitle | BlockKind::Subhead)
+                        })
+                })
+            })
+    }
+
     /// Append a part with no chapters.
     ///
     /// Structural builders are not edit transactions. They clear undo and redo

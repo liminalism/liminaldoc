@@ -224,11 +224,9 @@ pub(crate) fn export_docx(book: &Book, path: &Path) -> Result<(), String> {
                         paragraph = paragraph.push_text(block.text());
                     } else {
                         for run in block.runs() {
-                            let piece: String =
-                                chars.get(run.start..run.end.min(chars.len())).map_or(
-                                    String::new(),
-                                    |slice| slice.iter().collect(),
-                                );
+                            let piece: String = chars
+                                .get(run.start..run.end.min(chars.len()))
+                                .map_or(String::new(), |slice| slice.iter().collect());
                             let mut property = CharacterProperty::default();
                             if run.marks.bold {
                                 property.bold = Some(Bold::from(true));
@@ -334,10 +332,7 @@ fn xml_paragraphs(xml: &str) -> Result<Vec<Paragraph>, String> {
         match reader.read_event().map_err(|err| err.to_string())? {
             Event::Start(tag) => match local_name(tag.name().as_ref()) {
                 b"p" | b"h" if current.is_none() => {
-                    current = Some((
-                        String::new(),
-                        local_name(tag.name().as_ref()) == b"h",
-                    ));
+                    current = Some((String::new(), local_name(tag.name().as_ref()) == b"h"));
                 }
                 b"tab" | b"s" if current.is_some() => push_space(&mut current),
                 b"br" | b"line-break" if current.is_some() => push_space(&mut current),

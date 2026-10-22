@@ -177,7 +177,8 @@ fn direct_alignment_and_notes_reopen() {
     book.insert("A centered line.\nA plain line.").unwrap();
     let ids = book.block_ids();
     book.set_align(ids[0], Some(Align::Center)).unwrap();
-    book.attach_note(NoteKind::Footnote, "A kept note.").unwrap();
+    book.attach_note(NoteKind::Footnote, "A kept note.")
+        .unwrap();
     let dir = env::temp_dir().join(format!("legebook-align-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     book.save_bundle(&dir).unwrap();

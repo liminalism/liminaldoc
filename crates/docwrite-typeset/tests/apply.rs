@@ -179,7 +179,7 @@ fn an_unchanged_book_lays_out_nothing() {
 }
 
 #[test]
-fn chapter_titles_open_their_chapters_and_follow_renames() {
+fn chapter_titles_stay_off_the_page_and_follow_renames() {
     let mut book = book(4, 6, true);
     let mut document = from_book(&book, face()).unwrap();
     let chapters: Vec<_> = book.parts()[0]
@@ -188,18 +188,16 @@ fn chapter_titles_open_their_chapters_and_follow_renames() {
         .map(|chapter| (chapter.id(), chapter.title().to_string()))
         .collect();
     for (_, title) in &chapters {
-        let opener = (1..=document.page_count())
-            .find(|page| document.page_texts(*page).first() == Some(title))
-            .unwrap_or_else(|| panic!("no page opens with {title:?}"));
-        assert_eq!(opener % 2, 1, "{title} opens on a recto");
+        assert!(
+            (1..=document.page_count())
+                .all(|page| document.page_texts(page).first() != Some(title)),
+            "{title:?} is metadata, not page text"
+        );
     }
     book.rename_chapter(chapters[2].0, "A Renamed Chapter")
         .unwrap();
     let report = update_from_book(&mut document, &book).unwrap();
-    assert_eq!(
-        report.paragraphs_shaped, 1,
-        "only the title is shaped again"
-    );
+    assert_eq!(report.paragraphs_shaped, 0, "a rename shapes no text");
     assert_matches_fresh(&document, &book, "rename");
     assert!(
         (1..=document.page_count())

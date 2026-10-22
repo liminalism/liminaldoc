@@ -402,7 +402,7 @@ fn book_layout_next_page_chapters_start_a_page_and_templates_bring_their_masters
     book.insert("The second chapter.").unwrap();
 
     let document = from_book(&book, face()).unwrap();
-    let second = page_with(&document, "Second");
+    let second = page_with(&document, "The second chapter.");
     assert_eq!(second, 2, "a NextPage chapter starts the very next page");
     assert!(!document.is_blank_page(1));
 
@@ -434,7 +434,7 @@ fn book_layout_next_page_chapters_start_a_page_and_templates_bring_their_masters
     // Facing pages: the inner margin is on the left of a recto (odd page)
     // and on the right of a verso, where the outer margin is on the left.
     let inset = |page: u32| if page % 2 == 1 { 100.0 } else { 60.0 };
-    let appendix_page = page_with(&document, "Second");
+    let appendix_page = page_with(&document, "Appendix words");
     assert_eq!(
         document.page_content_inset(appendix_page),
         inset(appendix_page)

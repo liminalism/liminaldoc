@@ -249,36 +249,9 @@ fn layout_inputs(
             let head = chapter.title().to_string();
             let chapter_start = paragraphs.len();
             let mut first_body = true;
-            let titled = chapter
-                .sections()
-                .iter()
-                .flat_map(|section| section.blocks())
-                .next()
-                .is_some_and(|block| matches!(block.kind(), BlockKind::ChapterTitle));
-            if !titled && !head.is_empty() {
-                // The chapter's title is metadata, not a block: set it as the
-                // opener's first paragraph in the template's title style.
-                let title_style = template
-                    .map(|template| template.title_style.as_str())
-                    .unwrap_or("Chapter Title");
-                let mut style = map_style(&named_style(book, title_style));
-                style.name = "Chapter Title".into();
-                style.keep_with_next = true;
-                style.space_after = style.space_after.max(style.leading);
-                paragraphs.push(Paragraph {
-                    id: CHAPTER_TITLE_ID | chapter.id().raw(),
-                    text: head.clone(),
-                    style,
-                    note: None,
-                    note_is_endnote: false,
-                    note_mark: String::new(),
-                    runs: Vec::new(),
-                });
-                recto_at.push(false);
-                break_at.push(false);
-                master_at.push(master_index);
-                heads.push(head.clone());
-            }
+            // The chapter's title is metadata for the Book Map, contents and
+            // running heads; it is never set on the page unless the author
+            // wrote a Chapter Title block.
             for section in chapter.sections() {
                 for block in section.blocks() {
                     let style_name = match block.kind() {

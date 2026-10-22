@@ -632,7 +632,8 @@ impl Editor {
                 let pages = self.pages_painted;
                 self.paint_toolbar(&mut painter, face, width, pages);
             }
-            if self.sidebar.collapsed {
+            if !self.has_map() {
+            } else if self.sidebar.collapsed {
                 self.paint_tab(&mut painter);
             } else {
                 self.paint_sidebar(&mut painter, height, face);
