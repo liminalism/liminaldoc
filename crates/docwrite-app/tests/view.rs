@@ -13,8 +13,8 @@ fn page_theme_cycles_through_the_viewer_palettes() {
     }
 }
 
-fn painted(editor: &mut Editor) -> pixelkit_raster::WindowBuffer {
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+fn painted(editor: &mut Editor) -> liminalkit_raster::WindowBuffer {
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     frame
 }
@@ -46,7 +46,7 @@ fn the_book_map_resizes_folds_into_a_tab_and_comes_back() {
     assert_eq!(editor.sidebar_logical_width(), 0.0);
     let frame = painted(&mut editor);
     let page_edge = frame.pixels[(400 * 1100 + 60) as usize];
-    assert_eq!(page_edge, PAPER.desk, "the pages take the width back");
+    assert_eq!(page_edge, PAPER.page, "the page uses the reclaimed width");
 
     // The tab brings it back at the width it had.
     editor.hover(8.0, 50.0);
@@ -129,7 +129,7 @@ fn spread_view_shows_facing_pages_and_pages_by_spread() {
     for _ in 0..40 {
         editor.type_text(&format!("\n{paragraph}"));
     }
-    let mut frame = pixelkit_raster::WindowBuffer::new(1400, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1400, 800);
     editor.paint(&mut frame);
     let pages = editor.pager().pages();
     assert!(pages >= 4, "{pages} pages");
@@ -225,4 +225,21 @@ fn the_book_map_waits_for_a_structure_and_chapters_stay_blank() {
             "page {page} holds {text:?}"
         );
     }
+}
+
+#[test]
+fn typing_follows_the_caret_down_a_page_taller_than_the_window() {
+    let mut editor = Editor::new_document("Draft");
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
+    editor.paint(&mut frame);
+    for _ in 0..20 {
+        editor.type_text("A line of manuscript text.\n");
+        editor.paint(&mut frame);
+    }
+    let caret = editor.caret_area().unwrap();
+    assert!(
+        caret.y >= editor.toolbar_height() as f64 && caret.y + caret.height <= 800.0,
+        "caret is visible: {caret:?}"
+    );
+    assert!(editor.pager().scroll() > 0.0);
 }

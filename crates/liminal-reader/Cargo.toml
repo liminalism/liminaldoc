@@ -51,6 +51,7 @@ arc-swap.workspace = true
 crossbeam-channel.workspace = true
 thiserror.workspace = true
 winit.workspace = true
+liminalkit-raster = { workspace = true }
 cosmic-text.workspace = true
 arboard.workspace = true
 pdf-font.workspace = true

@@ -1,17 +1,23 @@
 //! Transactions: insert, delete, selection, word motion, clipboard, undo.
 //!
-//! One public call is one undo step. Caret motion is not recorded. Builders
-//! on [`Book`] (`add_part`, `add_chapter`, `add_section`) are not transactions
-//! either; they clear this history.
+//! One public call is one undo step. Caret motion is not recorded. Structural
+//! operations (`add_part`, `add_chapter`, `add_section`, `rename_chapter`,
+//! `delete_chapter`, `reorder_chapter`, `apply_template`) are transactions
+//! too: they keep ids, notes and research references, and undo in order with
+//! text edits. [`Book::type_text`] folds a burst of ordinary keystrokes into
+//! one step; `insert`, paste, breaks, formatting and structure stay separate.
 
 use std::cmp::Ordering;
 
 use crate::error::ModelError;
+use crate::ids::ChapterId;
 use crate::ids::{BlockId, NoteId};
 use crate::nav;
 use crate::publish::Align;
 use crate::runs::{self, Run, RunMarks, Script};
-use crate::tree::{Block, BlockKind, BlockLoc, Book, Note, NoteKind, Position, Selection};
+use crate::tree::{
+    Block, BlockKind, BlockLoc, Book, Chapter, Note, NoteKind, Part, Position, Section, Selection,
+};
 
 /// Which way a motion or a neighbor step moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,10 +134,47 @@ pub(crate) struct Transaction {
     changes: Vec<Change>,
     selection_before: Selection,
     selection_after: Selection,
+    /// Built from ordinary typed characters; the next keystroke may join it.
+    typing: bool,
 }
 
 #[derive(Clone, Debug)]
-enum Change {
+pub(crate) enum Change {
+    InsertPart {
+        index: usize,
+        part: Part,
+    },
+    InsertChapter {
+        part: usize,
+        index: usize,
+        chapter: Chapter,
+    },
+    RemoveChapter {
+        part: usize,
+        index: usize,
+        chapter: Chapter,
+    },
+    InsertSection {
+        part: usize,
+        chapter: usize,
+        index: usize,
+        section: Section,
+    },
+    RenameChapter {
+        id: ChapterId,
+        old: String,
+        new: String,
+    },
+    SetChapterTemplate {
+        id: ChapterId,
+        old: String,
+        new: String,
+    },
+    MoveChapter {
+        id: ChapterId,
+        from: (usize, usize),
+        to: (usize, usize),
+    },
     ReplaceText {
         block: BlockId,
         start: usize,
@@ -214,6 +257,46 @@ impl Book {
     /// before the caret.
     pub fn insert(&mut self, text: &str) -> Result<(), ModelError> {
         self.insert_text(text, None)
+    }
+
+    /// Insert keystrokes. Like [`Self::insert`], but a run of ordinary typed
+    /// characters at a moving caret folds into one undo step, which ends at a
+    /// word boundary, a paragraph break, a selection replacement or any caret
+    /// movement. Paste and programmatic insertion should use [`Self::insert`].
+    pub fn type_text(&mut self, text: &str) -> Result<(), ModelError> {
+        let before = self.selection;
+        let ordinary = !text.is_empty()
+            && !text.contains(['\n', '\r'])
+            && before.is_collapsed()
+            && self.typing_marks.is_none();
+        let new_word = text.chars().next().is_some_and(|c| !c.is_whitespace())
+            && before.focus.offset > 0
+            && self.block_ref(before.focus.block).is_ok_and(|block| {
+                block
+                    .text_rope()
+                    .get_char(before.focus.offset - 1)
+                    .is_some_and(char::is_whitespace)
+            });
+        let depth = self.undo.len();
+        self.insert_text(text, None)?;
+        if !ordinary || self.undo.len() != depth + 1 {
+            return Ok(());
+        }
+        let joins = depth > 0
+            && !new_word
+            && self.undo[depth - 1].typing
+            && self.undo[depth - 1].selection_after == before;
+        if let Some(mut current) = self.undo.pop() {
+            current.typing = true;
+            if joins && let Some(mut previous) = self.undo.pop() {
+                previous.changes.append(&mut current.changes);
+                previous.selection_after = current.selection_after;
+                self.undo.push(previous);
+            } else {
+                self.undo.push(current);
+            }
+        }
+        Ok(())
     }
 
     /// [`Self::insert`], but the inserted characters take `marks` instead of
@@ -394,6 +477,7 @@ impl Book {
             changes,
             selection_before,
             selection_after,
+            typing: false,
         });
     }
 
@@ -665,6 +749,59 @@ impl Book {
         })
     }
 
+    /// Apply one structural change as its own undo step.
+    pub(crate) fn record(&mut self, change: Change) -> Result<(), ModelError> {
+        self.transact(|book, changes| {
+            book.apply(&change, false)?;
+            changes.push(change);
+            Ok(())
+        })
+    }
+
+    /// Remove a chapter, with its blocks, as one undo step. The last chapter
+    /// cannot be removed. A caret inside it moves to the neighboring chapter.
+    /// Notes and research records stay in the book, so undo restores them.
+    pub fn delete_chapter(&mut self, id: ChapterId) -> Result<(), ModelError> {
+        let (part, index) = self.chapter_position(id)?;
+        let total: usize = self.parts().iter().map(|part| part.chapters().len()).sum();
+        if total < 2 {
+            return Err(ModelError::Inconsistent("cannot delete the last chapter"));
+        }
+        let chapter = self.parts()[part].chapters()[index].clone();
+        let doomed: Vec<BlockId> = chapter
+            .sections()
+            .iter()
+            .flat_map(|section| section.blocks())
+            .map(Block::id)
+            .collect();
+        let before_ids = self.block_ids();
+        let first_doomed = before_ids
+            .iter()
+            .position(|block| doomed.contains(block))
+            .unwrap_or(0);
+        self.transact(|book, changes| {
+            let change = Change::RemoveChapter {
+                part,
+                index,
+                chapter,
+            };
+            book.apply(&change, false)?;
+            changes.push(change);
+            if doomed.contains(&book.selection.anchor.block)
+                || doomed.contains(&book.selection.focus.block)
+            {
+                let remaining = book.block_ids();
+                let target = remaining
+                    .get(first_doomed)
+                    .or_else(|| remaining.last())
+                    .copied()
+                    .ok_or(ModelError::Inconsistent("book would be empty"))?;
+                book.selection = Selection::collapsed(Position::new(target, 0));
+            }
+            Ok(())
+        })
+    }
+
     fn transact<F>(&mut self, body: F) -> Result<(), ModelError>
     where
         F: FnOnce(&mut Self, &mut Vec<Change>) -> Result<(), ModelError>,
@@ -684,6 +821,7 @@ impl Book {
                 changes,
                 selection_before: before,
                 selection_after: self.selection,
+                typing: false,
             });
         }
         self.check_consistency()
@@ -1068,6 +1206,87 @@ impl Book {
 
     fn apply(&mut self, change: &Change, backward: bool) -> Result<(), ModelError> {
         match change {
+            Change::InsertPart { index, part } => {
+                if backward {
+                    if self.parts().get(*index).map(Part::id) != Some(part.id()) {
+                        return Err(ModelError::EditConflict);
+                    }
+                    self.parts_vec_mut().remove(*index);
+                } else {
+                    if *index > self.parts().len() {
+                        return Err(ModelError::EditConflict);
+                    }
+                    self.parts_vec_mut().insert(*index, part.clone());
+                }
+                self.reindex();
+                Ok(())
+            }
+            Change::InsertChapter {
+                part,
+                index,
+                chapter,
+            }
+            | Change::RemoveChapter {
+                part,
+                index,
+                chapter,
+            } => {
+                let insert = matches!(change, Change::InsertChapter { .. }) != backward;
+                if insert {
+                    self.insert_chapter_at(*part, *index, chapter)?;
+                } else {
+                    self.remove_chapter_at(*part, *index, chapter.id())?;
+                }
+                Ok(())
+            }
+            Change::InsertSection {
+                part,
+                chapter,
+                index,
+                section,
+            } => {
+                let target = self
+                    .parts_vec_mut()
+                    .get_mut(*part)
+                    .and_then(|part| part.chapters_mut().get_mut(*chapter))
+                    .ok_or(ModelError::EditConflict)?;
+                if backward {
+                    if target.sections().get(*index).map(Section::id) != Some(section.id()) {
+                        return Err(ModelError::EditConflict);
+                    }
+                    target.sections_mut().remove(*index);
+                } else {
+                    if *index > target.sections().len() {
+                        return Err(ModelError::EditConflict);
+                    }
+                    target.sections_mut().insert(*index, section.clone());
+                }
+                self.reindex();
+                Ok(())
+            }
+            Change::RenameChapter { id, old, new } => {
+                let (expected, assign) = if backward { (new, old) } else { (old, new) };
+                let chapter = self.chapter_mut(*id)?;
+                if chapter.title() != expected {
+                    return Err(ModelError::EditConflict);
+                }
+                chapter.set_title(assign.clone());
+                Ok(())
+            }
+            Change::SetChapterTemplate { id, old, new } => {
+                let (expected, assign) = if backward { (new, old) } else { (old, new) };
+                let chapter = self.chapter_mut(*id)?;
+                if chapter.template() != expected {
+                    return Err(ModelError::EditConflict);
+                }
+                chapter.set_template(assign.clone());
+                Ok(())
+            }
+            Change::MoveChapter { id, from, to } => {
+                let (source, dest) = if backward { (*to, *from) } else { (*from, *to) };
+                let chapter = self.remove_chapter_at(source.0, source.1, *id)?;
+                self.insert_chapter_at(dest.0, dest.1, &chapter)
+            }
             Change::ReplaceText {
                 block,
                 start,
@@ -1162,6 +1381,44 @@ impl Book {
                 Ok(())
             }
         }
+    }
+
+    fn insert_chapter_at(
+        &mut self,
+        part: usize,
+        index: usize,
+        chapter: &Chapter,
+    ) -> Result<(), ModelError> {
+        let chapters = self
+            .parts_vec_mut()
+            .get_mut(part)
+            .ok_or(ModelError::EditConflict)?
+            .chapters_mut();
+        if index > chapters.len() {
+            return Err(ModelError::EditConflict);
+        }
+        chapters.insert(index, chapter.clone());
+        self.reindex();
+        Ok(())
+    }
+
+    fn remove_chapter_at(
+        &mut self,
+        part: usize,
+        index: usize,
+        expected: ChapterId,
+    ) -> Result<Chapter, ModelError> {
+        let chapters = self
+            .parts_vec_mut()
+            .get_mut(part)
+            .ok_or(ModelError::EditConflict)?
+            .chapters_mut();
+        if chapters.get(index).map(Chapter::id) != Some(expected) {
+            return Err(ModelError::EditConflict);
+        }
+        let removed = chapters.remove(index);
+        self.reindex();
+        Ok(removed)
     }
 
     fn insert_at(&mut self, loc: BlockLoc, block: &Block) -> Result<(), ModelError> {

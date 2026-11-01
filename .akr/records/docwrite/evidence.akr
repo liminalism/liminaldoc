@@ -713,6 +713,57 @@ record docwrite.evidence.reader-markdown-render-review/2 : evidence {
     author "dk"
 }
 
+record docwrite.evidence.reader-reads-only/1 : evidence {
+    title "Reader tests passed with processing removed"
+    state verified
+    result pass
+    method command
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    command "cargo clippy -p liminaldoc-reader --all-targets --no-deps --offline -- -D warnings && cargo test -p liminaldoc-reader --offline --lib --bins"
+    summary """
+        Reader clippy with warnings denied passed, and 119 library tests passed after the processing window, Process toolbar control, and processing worker were removed. The icon test still passed.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.reader-resize-checks/1 : evidence {
+    title "Reader resize changes: tests, clippy and feature checks on the working tree"
+    state verified
+    result pass
+    method command
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    command "cargo test -p liminaldoc-reader; cargo clippy -p liminaldoc-reader --all-targets -- -D warnings; rustfmt --edition 2024 --check crates/liminal-reader/src/app.rs crates/liminal-reader/src/present/wgpu.rs; cargo check -p liminaldoc-reader --all-targets --no-default-features --features softbuffer-presenter (and wgpu-presenter)"
+    summary """
+        Working tree atop 74677ba: 123 reader library tests passed; 35 architecture tests passed in 5 of 5 reruns, but skim_intent_renders_exact_tiles_without_building_a_new_preview failed once in one earlier full run and was not reproduced or explained; clippy -D warnings and rustfmt clean; software-only and GPU-only feature checks build (pre-existing NeedsPassword dead-code warning only). The #[cfg(windows)] synchronous-present path was not compiled or run.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.reader-resize-x11-stress/1 : evidence {
+    title "X11 resize stress on the reader: GPU-to-softbuffer fallback rate by fix stage"
+    state verified
+    result inconclusive
+    method manual
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    summary """
+        Working tree atop 74677ba, Lubuntu LXQt on X11 (:1), NVIDIA RTX 4060 Laptop Vulkan, debug build, 3-line markdown file, Auto presenter. Stress: xdotool windowsize x160 in a tight loop (80 growing steps then 80 shrinking). With Resized coalesced and presenters resizing lazily, but no lost-surface handling: GPU fell back to softbuffer in 4 of 4 runs ("the presentation surface was lost"). After skip-on-size-mismatch plus retry: 1 of 4 (one retry), 1 of 8 (3 retries), 3 of 12 (8 retries, the committed value). The original code was never run, so there is no true baseline. Window title read "Liminaldoc — smoke.md" via xdotool getwindowname. Visual flicker and lag were not measured or observed; no screenshots or frame timings were taken.
+        """
+    author "dk"
+}
+
+record docwrite.evidence.release-app-icons/1 : evidence {
+    title "Release reader and writer binaries embed their icons"
+    state verified
+    result pass
+    method command
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    command "cargo build --release -p liminaldoc-reader --bin liminaldoc-reader -p docwrite-app --bin liminaldoc-writer --offline"
+    summary """
+        Release liminaldoc-reader contains the 55497-byte reader PNG and not the writer PNG. Release liminaldoc-writer contains the 51767-byte writer PNG and not the reader PNG.
+        """
+    author "dk"
+}
+
 record docwrite.evidence.responsiveness-renders/1 : evidence {
     title "Headless PNG renders reviewed: serif justified body, footnote session caret at ruled foot with folio, WP5.1 fullscreen with clear status line; fixed toolbar tofu and status overlap found in review"
     state verified

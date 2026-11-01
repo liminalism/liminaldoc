@@ -56,7 +56,7 @@ fn main() {
     let started = Instant::now();
     let mut editor = Editor::open_existing(path).unwrap();
     println!("open bundle: {:?}", started.elapsed());
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     let started = Instant::now();
     editor.paint(&mut frame);
     println!(

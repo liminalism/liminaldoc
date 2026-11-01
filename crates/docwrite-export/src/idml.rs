@@ -68,13 +68,17 @@ pub fn export_idml(book: &Book) -> Vec<u8> {
 <idPkg:MasterSpread src="MasterSpreads/MasterSpread_u1.xml"/>
 <idPkg:Story src="Stories/Story_u1.xml"/>
 <idPkg:Styles src="Resources/Styles.xml"/>
+<Properties>
+<Label>
+<KeyValuePair Key="title" Value="{}"/>
+</Label>
+</Properties>
 <StoryList>
 <Story Self="story_u1"/>
 </StoryList>
 </Document>
-<title>{}</title>
 "#,
-        xml_escape(book.title())
+        xml_attr_escape(book.title())
     );
 
     zip_stored(&[
@@ -92,18 +96,39 @@ fn xml_escape(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn xml_attr_escape(text: &str) -> String {
+    xml_escape(text).replace('"', "&quot;")
+}
+
+/// CRC-32 (IEEE 802.3), as the zip format records it for every member.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for byte in data {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
 fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut body = Vec::new();
     let mut central = Vec::new();
     for (name, data) in files {
         let offset = body.len() as u32;
+        let crc = crc32(data);
         body.extend_from_slice(&0x04034b50u32.to_le_bytes());
         body.extend_from_slice(&20u16.to_le_bytes());
         body.extend_from_slice(&0u16.to_le_bytes());
         body.extend_from_slice(&0u16.to_le_bytes());
         body.extend_from_slice(&0u16.to_le_bytes());
         body.extend_from_slice(&0u16.to_le_bytes());
-        body.extend_from_slice(&0u32.to_le_bytes());
+        body.extend_from_slice(&crc.to_le_bytes());
         body.extend_from_slice(&(data.len() as u32).to_le_bytes());
         body.extend_from_slice(&(data.len() as u32).to_le_bytes());
         body.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -118,7 +143,7 @@ fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
         central.extend_from_slice(&0u16.to_le_bytes());
         central.extend_from_slice(&0u16.to_le_bytes());
         central.extend_from_slice(&0u16.to_le_bytes());
-        central.extend_from_slice(&0u32.to_le_bytes());
+        central.extend_from_slice(&crc.to_le_bytes());
         central.extend_from_slice(&(data.len() as u32).to_le_bytes());
         central.extend_from_slice(&(data.len() as u32).to_le_bytes());
         central.extend_from_slice(&(name.len() as u16).to_le_bytes());
@@ -141,4 +166,42 @@ fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
     body.extend_from_slice(&central_start.to_le_bytes());
     body.extend_from_slice(&0u16.to_le_bytes());
     body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn u32_at(bytes: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    }
+
+    #[test]
+    fn crc32_matches_the_standard_check_value() {
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn every_member_records_its_crc_and_the_designmap_is_one_element() {
+        let mut book = Book::new("Quote \"A\" & B");
+        let _ = book.insert("Hello.");
+        let zip = export_idml(&book);
+        let mut at = 0;
+        let mut members = 0;
+        while u32_at(&zip, at) == 0x0403_4b50 {
+            let size = u32_at(&zip, at + 18) as usize;
+            let name_len = u16::from_le_bytes([zip[at + 26], zip[at + 27]]) as usize;
+            let data = at + 30 + name_len;
+            assert_eq!(u32_at(&zip, at + 14), crc32(&zip[data..data + size]));
+            if &zip[at + 30..data] == b"designmap.xml" {
+                let xml = std::str::from_utf8(&zip[data..data + size]).unwrap();
+                assert!(xml.trim_end().ends_with("</Document>"));
+                assert_eq!(xml.matches("</Document>").count(), 1);
+                assert!(xml.contains("Quote &quot;A&quot; &amp; B"));
+            }
+            members += 1;
+            at = data + size;
+        }
+        assert_eq!(members, 5);
+    }
 }

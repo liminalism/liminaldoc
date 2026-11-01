@@ -36,12 +36,12 @@ lege-pdf-read = { path = "../Lege-ecosystem/lege-pdf/read" }
 pdf-font = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-font" }
 pdf-text = { path = "../Lege-ecosystem/lege-pdf/render/crates/pdf-text" }
 
-# pixelkit: sibling repository next to Lege-ecosystem, path-only.
-pixelkit-raster = { path = "../pixelkit/crates/pixelkit-raster" }
-pixelkit-text = { path = "../pixelkit/crates/pixelkit-text" }
-pixelkit-shell = { path = "../pixelkit/crates/pixelkit-shell" }
-pixelkit-ui = { path = "../pixelkit/crates/pixelkit-ui" }
-pixelkit-windowing = { path = "../pixelkit/crates/pixelkit-windowing" }
+# liminalkit: sibling repository next to Lege-ecosystem, path-only.
+liminalkit-raster = { path = "../liminalkit/crates/liminalkit-raster" }
+liminalkit-text = { path = "../liminalkit/crates/liminalkit-text" }
+liminalkit-shell = { path = "../liminalkit/crates/liminalkit-shell" }
+liminalkit-ui = { path = "../liminalkit/crates/liminalkit-ui" }
+liminalkit-windowing = { path = "../liminalkit/crates/liminalkit-windowing" }
 
 # Native reader dependencies. The backend remains a separate executable so
 # writer startup never creates PDF workers, caches or a presenter.

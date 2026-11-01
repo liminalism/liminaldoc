@@ -16,9 +16,9 @@ use docwrite_app::autosave::{self, AutosaveInterval};
 use docwrite_app::tabs::{DocumentTabs, TabCommand, TabStripLayout};
 use docwrite_app::{PromptKind, PromptMotion, RecentFiles};
 use docwrite_model::{Align, Mark};
-use pixelkit_shell::KeyInput;
-use pixelkit_shell::clipboard::Clipboard;
-use pixelkit_windowing::KeyEvent;
+use liminalkit_shell::KeyInput;
+use liminalkit_shell::clipboard::Clipboard;
+use liminalkit_windowing::KeyEvent;
 use rfd::FileDialog;
 
 fn main() {
@@ -29,6 +29,27 @@ fn main() {
             std::process::exit(if err.is_display() { 2 } else { 1 });
         }
     }
+}
+
+// On Linux the bundled portal backend cannot distinguish cancellation from
+// portal failure and starts a second chooser. Use the native Zenity chooser
+// when available, keeping cancellation as a final result.
+#[cfg(target_os = "linux")]
+fn linux_file_dialog(args: &[&str]) -> Option<Option<PathBuf>> {
+    let output = Command::new("zenity")
+        .arg("--file-selection")
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return Some(None);
+    }
+    let mut bytes = output.stdout;
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+    }
+    use std::os::unix::ffi::OsStringExt;
+    Some((!bytes.is_empty()).then(|| PathBuf::from(std::ffi::OsString::from_vec(bytes))))
 }
 
 struct RunError {
@@ -151,19 +172,22 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
         ime_composing: false,
         tab_height: 0,
         cursor: (0.0, 0.0),
-        content_buffer: pixelkit_raster::WindowBuffer::new(1, 1),
+        content_buffer: liminalkit_raster::WindowBuffer::new(1, 1),
         last_title: String::new(),
         ui_scale: 1.0,
         recent,
         recent_path,
     };
+    app.offer_recovered_drafts();
     match book {
         Some(path) => app.remember(&path),
         None => app.sync_recent(),
     }
-    let config =
-        pixelkit_windowing::WindowConfig::new(&title, 1100.0, 800.0).min_size(640.0, 400.0);
-    pixelkit_windowing::run_app(app, config).map_err(|err| {
+    let mut config =
+        liminalkit_windowing::WindowConfig::new(&title, 1100.0, 800.0).min_size(640.0, 400.0);
+    // Same string a liminaldoc-writer desktop file would use for StartupWMClass.
+    config.app_id = Some("liminaldoc-writer".to_owned());
+    liminalkit_windowing::run_app(app, config).map_err(|err| {
         let message = err.to_string();
         let lower = message.to_ascii_lowercase();
         if lower.contains("display") || lower.contains("window") || lower.contains("connection") {
@@ -185,7 +209,7 @@ struct EditorApp {
     ime_composing: bool,
     tab_height: i32,
     cursor: (f32, f32),
-    content_buffer: pixelkit_raster::WindowBuffer,
+    content_buffer: liminalkit_raster::WindowBuffer,
     last_title: String,
     ui_scale: f32,
     /// Files opened or saved recently, newest first, for the File menu.
@@ -270,7 +294,7 @@ impl EditorApp {
         }
     }
 
-    /// Use the platform's complete text payload. PixelKit currently emits
+    /// Use the platform's complete text payload. liminalkit currently emits
     /// named Space as a character key with an empty payload on some hosts.
     fn input_text(&self, event: &KeyEvent) -> String {
         let modifiers = event.modifiers;
@@ -298,6 +322,34 @@ impl EditorApp {
         };
         eprintln!("liminaldoc-writer: {line}");
         self.status = Some(line);
+    }
+
+    /// Unsaved drafts an earlier run left in the recovery directory open as
+    /// untitled tabs. They stay in recovery until saved under a name or closed.
+    fn offer_recovered_drafts(&mut self) {
+        let Some(root) = docwrite_app::recovery::default_root() else {
+            return;
+        };
+        let mut opened = 0usize;
+        for path in docwrite_app::recovery::pending(&root) {
+            match docwrite_app::Editor::open_recovered(&path) {
+                Ok(editor) => {
+                    self.tabs.push(editor);
+                    opened += 1;
+                }
+                Err(error) => eprintln!(
+                    "liminaldoc-writer: cannot recover {}: {error}",
+                    path.display()
+                ),
+            }
+        }
+        if opened > 0 {
+            let noun = if opened == 1 { "draft" } else { "drafts" };
+            self.status = Some(format!(
+                "Recovered {opened} unsaved {noun}. Save As to keep {}.",
+                if opened == 1 { "it" } else { "them" }
+            ));
+        }
     }
 
     fn new_document(&mut self) {
@@ -368,6 +420,16 @@ impl EditorApp {
     }
 
     fn open_file_dialog(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(path) = linux_file_dialog(&[
+            "--title=Open document",
+            "--file-filter=Documents | *.txt *.md *.markdown *.odt *.docx *.pdf",
+        ]) {
+            if let Some(path) = path {
+                self.open_path(&path);
+            }
+            return;
+        }
         let path = FileDialog::new()
             .set_title("Open document")
             .add_filter(
@@ -381,6 +443,13 @@ impl EditorApp {
     }
 
     fn open_book_dialog(&mut self) {
+        #[cfg(target_os = "linux")]
+        if let Some(path) = linux_file_dialog(&["--title=Open .legebook folder", "--directory"]) {
+            if let Some(path) = path {
+                self.open_path(&path);
+            }
+            return;
+        }
         if let Some(path) = FileDialog::new()
             .set_title("Open .legebook folder")
             .pick_folder()
@@ -391,15 +460,26 @@ impl EditorApp {
 
     fn save_as_dialog(&mut self) -> bool {
         let name = self.tabs.book().title().to_string();
-        let path = FileDialog::new()
-            .set_title("Save as")
-            .add_filter("Lege book", &["legebook"])
-            .add_filter("PDF", &["pdf"])
-            .add_filter("Word document", &["docx"])
-            .add_filter("Markdown", &["md"])
-            .add_filter("Plain text", &["txt"])
-            .set_file_name(name)
-            .save_file();
+        #[cfg(target_os = "linux")]
+        let path = linux_file_dialog(&[
+            "--title=Save as",
+            "--save",
+            "--confirm-overwrite",
+            &format!("--filename={name}"),
+        ]);
+        #[cfg(not(target_os = "linux"))]
+        let path: Option<Option<PathBuf>> = None;
+        let path = path.unwrap_or_else(|| {
+            FileDialog::new()
+                .set_title("Save as")
+                .add_filter("Lege book", &["legebook"])
+                .add_filter("PDF", &["pdf"])
+                .add_filter("Word document", &["docx"])
+                .add_filter("Markdown", &["md"])
+                .add_filter("Plain text", &["txt"])
+                .set_file_name(name)
+                .save_file()
+        });
         let Some(mut path) = path else {
             return false;
         };
@@ -713,8 +793,18 @@ impl EditorApp {
     }
 }
 
-impl pixelkit_windowing::PixelApp for EditorApp {
-    fn render(&mut self, buffer: &mut pixelkit_raster::WindowBuffer, scale: pixelkit_shell::Scale) {
+impl liminalkit_windowing::PixelApp for EditorApp {
+    fn on_native_window(&mut self, window: &winit::window::Window) {
+        if let Some(icon) = window_icon() {
+            window.set_window_icon(Some(icon));
+        }
+    }
+
+    fn render(
+        &mut self,
+        buffer: &mut liminalkit_raster::WindowBuffer,
+        scale: liminalkit_shell::Scale,
+    ) {
         self.ui_scale = scale.0;
         self.tabs.set_ui_scale(scale.0);
         let width = buffer.width;
@@ -771,13 +861,13 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         }
     }
 
-    fn cursor_shape(&self) -> pixelkit_windowing::CursorShape {
+    fn cursor_shape(&self) -> liminalkit_windowing::CursorShape {
         match self.tabs.pointer_shape() {
-            docwrite_app::PointerShape::Arrow => pixelkit_windowing::CursorShape::Default,
-            docwrite_app::PointerShape::Text => pixelkit_windowing::CursorShape::Text,
-            docwrite_app::PointerShape::Hand => pixelkit_windowing::CursorShape::Pointer,
+            docwrite_app::PointerShape::Arrow => liminalkit_windowing::CursorShape::Default,
+            docwrite_app::PointerShape::Text => liminalkit_windowing::CursorShape::Text,
+            docwrite_app::PointerShape::Hand => liminalkit_windowing::CursorShape::Pointer,
             docwrite_app::PointerShape::ResizeColumn => {
-                pixelkit_windowing::CursorShape::ResizeHorizontal
+                liminalkit_windowing::CursorShape::ResizeHorizontal
             }
         }
     }
@@ -803,6 +893,15 @@ impl pixelkit_windowing::PixelApp for EditorApp {
     }
 
     fn on_exit(&mut self) {
+        if std::thread::panicking() {
+            for index in 0..self.tabs.len() {
+                self.tabs.select(index);
+                if self.tabs.is_dirty() {
+                    let _ = self.backup_current_on_exit(index);
+                }
+            }
+            return;
+        }
         for index in 0..self.tabs.len() {
             self.tabs.select(index);
             let has_unsaved_text =
@@ -919,6 +1018,9 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             KeyInput::Backspace => self.tabs.backspace(),
             KeyInput::Delete => self.tabs.delete_forward(),
             KeyInput::Enter => self.tabs.type_text("\n"),
+            KeyInput::Tab if !modifiers.alt && !modifiers.logo && !modifiers.control => {
+                self.tabs.type_text("\t")
+            }
             _ => {
                 let text = self.input_text(event);
                 if !text.is_empty() {
@@ -939,8 +1041,8 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         self.tabs.hover(x, y - offset);
     }
 
-    fn on_mouse(&mut self, button: pixelkit_shell::MouseButton, pressed: bool) {
-        if button == pixelkit_shell::MouseButton::Left {
+    fn on_mouse(&mut self, button: liminalkit_shell::MouseButton, pressed: bool) {
+        if button == liminalkit_shell::MouseButton::Left {
             let top = self.tabs.toolbar_height() as f32;
             if self.tab_height > 0
                 && self.cursor.1 >= top
@@ -969,9 +1071,9 @@ impl pixelkit_windowing::PixelApp for EditorApp {
         }
     }
 
-    fn on_ime(&mut self, ime: &pixelkit_windowing::ImeEvent) {
+    fn on_ime(&mut self, ime: &liminalkit_windowing::ImeEvent) {
         match ime {
-            pixelkit_windowing::ImeEvent::Commit(text) => {
+            liminalkit_windowing::ImeEvent::Commit(text) => {
                 self.ime_composing = false;
                 if self.tabs.prompt().is_some() {
                     self.tabs.set_preedit("");
@@ -983,22 +1085,22 @@ impl pixelkit_windowing::PixelApp for EditorApp {
                     self.tabs.commit_ime(text);
                 }
             }
-            pixelkit_windowing::ImeEvent::Preedit(text, _) => {
+            liminalkit_windowing::ImeEvent::Preedit(text, _) => {
                 self.ime_composing = !text.is_empty();
                 self.tabs.set_preedit(text);
             }
-            pixelkit_windowing::ImeEvent::Disabled => {
+            liminalkit_windowing::ImeEvent::Disabled => {
                 self.ime_composing = false;
                 self.tabs.set_preedit("");
             }
-            pixelkit_windowing::ImeEvent::Enabled => {}
+            liminalkit_windowing::ImeEvent::Enabled => {}
         }
     }
 
-    fn ime_cursor_area(&self) -> Option<pixelkit_windowing::ImeCursorArea> {
+    fn ime_cursor_area(&self) -> Option<liminalkit_windowing::ImeCursorArea> {
         self.tabs
             .caret_area()
-            .map(|caret| pixelkit_windowing::ImeCursorArea {
+            .map(|caret| liminalkit_windowing::ImeCursorArea {
                 x: caret.x,
                 y: caret.y
                     + if caret.y >= self.tabs.toolbar_height() as f64 {
@@ -1011,14 +1113,84 @@ impl pixelkit_windowing::PixelApp for EditorApp {
             })
     }
 
-    fn on_scroll_event(&mut self, event: &pixelkit_windowing::ScrollEvent) {
+    fn on_scroll_event(&mut self, event: &liminalkit_windowing::ScrollEvent) {
         let phase = match event.phase {
-            pixelkit_windowing::GesturePhase::Started => docwrite_app::Phase::Started,
-            pixelkit_windowing::GesturePhase::Moved => docwrite_app::Phase::Moved,
-            pixelkit_windowing::GesturePhase::Ended => docwrite_app::Phase::Ended,
-            pixelkit_windowing::GesturePhase::Cancelled => docwrite_app::Phase::Cancelled,
+            liminalkit_windowing::GesturePhase::Started => docwrite_app::Phase::Started,
+            liminalkit_windowing::GesturePhase::Moved => docwrite_app::Phase::Moved,
+            liminalkit_windowing::GesturePhase::Ended => docwrite_app::Phase::Ended,
+            liminalkit_windowing::GesturePhase::Cancelled => docwrite_app::Phase::Cancelled,
         };
         self.tabs.scroll_wheel(event.pixel_dy, event.line_dy, phase);
+    }
+}
+
+/// Embedded launcher art. `None` if the PNG cannot be decoded; the window
+/// still opens.
+fn window_icon() -> Option<winit::window::Icon> {
+    let bitmap = liminalkit_raster::png::decode(include_bytes!("../assets/icon.png")).ok()?;
+    // A 256px icon does not survive winit's X11 property write. 128px is what
+    // the title bar and taskbar display.
+    let (width, height, pixels) = icon_pixels(&bitmap, 128);
+    let mut rgba = Vec::with_capacity(pixels.len() * 4);
+    for pixel in &pixels {
+        rgba.extend_from_slice(&[
+            ((pixel >> 16) & 255) as u8,
+            ((pixel >> 8) & 255) as u8,
+            (pixel & 255) as u8,
+            (pixel >> 24) as u8,
+        ]);
+    }
+    winit::window::Icon::from_rgba(rgba, width, height).ok()
+}
+
+fn icon_pixels(bitmap: &liminalkit_raster::Bitmap, side: u32) -> (u32, u32, Vec<u32>) {
+    let side = side.min(bitmap.width.min(bitmap.height)).max(1);
+    if bitmap.width == side && bitmap.height == side {
+        return (side, side, bitmap.pixels.clone());
+    }
+    let mut out = vec![0; (side * side) as usize];
+    for y in 0..side {
+        let y0 = y * bitmap.height / side;
+        let y1 = ((y + 1) * bitmap.height / side).max(y0 + 1);
+        for x in 0..side {
+            let x0 = x * bitmap.width / side;
+            let x1 = ((x + 1) * bitmap.width / side).max(x0 + 1);
+            let mut alpha = 0u32;
+            let mut red = 0u32;
+            let mut green = 0u32;
+            let mut blue = 0u32;
+            let mut count = 0u32;
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    let pixel = bitmap.pixels[(sy * bitmap.width + sx) as usize];
+                    alpha += pixel >> 24;
+                    red += (pixel >> 16) & 255;
+                    green += (pixel >> 8) & 255;
+                    blue += pixel & 255;
+                    count += 1;
+                }
+            }
+            out[(y * side + x) as usize] =
+                (alpha / count) << 24 | (red / count) << 16 | (green / count) << 8 | (blue / count);
+        }
+    }
+    (side, side, out)
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod icon_tests {
+    #[test]
+    fn writer_icon_is_a_transparent_rounded_square() {
+        let bitmap = liminalkit_raster::png::decode(include_bytes!("../assets/icon.png"))
+            .expect("writer icon");
+        assert_eq!((bitmap.width, bitmap.height), (256, 256));
+        assert_eq!(bitmap.pixels[0] >> 24, 0, "corner stays transparent");
+        let top = bitmap.pixels[(18 * 256 + 128) as usize];
+        let red = (top >> 16) & 255;
+        let blue = top & 255;
+        assert!(blue > red, "writer icon is the blue one, got {top:#x}");
+        assert!(super::window_icon().is_some());
     }
 }
 
@@ -1027,8 +1199,8 @@ impl pixelkit_windowing::PixelApp for EditorApp {
 mod input_tests {
     use super::*;
     use docwrite_model::{Position, Selection};
-    use pixelkit_shell::Modifiers;
-    use pixelkit_windowing::PixelApp;
+    use liminalkit_shell::Modifiers;
+    use liminalkit_windowing::PixelApp;
 
     fn app() -> EditorApp {
         EditorApp {
@@ -1043,12 +1215,21 @@ mod input_tests {
             ime_composing: false,
             tab_height: 0,
             cursor: (0.0, 0.0),
-            content_buffer: pixelkit_raster::WindowBuffer::new(1, 1),
+            content_buffer: liminalkit_raster::WindowBuffer::new(1, 1),
             last_title: String::new(),
             ui_scale: 1.0,
             recent: RecentFiles::new(),
             recent_path: None,
         }
+    }
+
+    #[test]
+    fn tab_inserts_a_tab_in_the_manuscript() {
+        let mut app = app();
+        let mut event = space(true, false, Modifiers::default());
+        event.key = KeyInput::Tab;
+        app.on_key_event(&event);
+        assert_eq!(app.tabs.book().plain_text(), "\t");
     }
 
     fn space(pressed: bool, repeat: bool, modifiers: Modifiers) -> KeyEvent {
@@ -1162,10 +1343,10 @@ mod input_tests {
     fn prompt_receives_ime_commit_and_space_without_editing_manuscript() {
         let mut app = app();
         app.tabs.open_prompt(PromptKind::Find);
-        app.on_ime(&pixelkit_windowing::ImeEvent::Preedit("あ".into(), None));
+        app.on_ime(&liminalkit_windowing::ImeEvent::Preedit("あ".into(), None));
         app.on_key_event(&space(true, false, Modifiers::default()));
         assert_eq!(app.tabs.prompt().unwrap().text, "");
-        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("あ".into()));
+        app.on_ime(&liminalkit_windowing::ImeEvent::Commit("あ".into()));
         app.on_key_event(&space(true, false, Modifiers::default()));
         assert_eq!(app.tabs.prompt().unwrap().text, "あ ");
         assert_eq!(app.tabs.book().plain_text(), "");
@@ -1209,7 +1390,7 @@ mod input_tests {
             },
         );
         assert_eq!(app.tabs.prompt_selected_text().as_deref(), Some("hapter 1"));
-        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("新しい章".into()));
+        app.on_ime(&liminalkit_windowing::ImeEvent::Commit("新しい章".into()));
         assert_eq!(app.tabs.prompt().unwrap().text, "新しい章");
         send(&mut app, KeyInput::Left, "ArrowLeft", Modifiers::default());
         send(
@@ -1250,7 +1431,7 @@ mod input_tests {
             },
         });
         assert_eq!(app.tabs.prompt().unwrap().kind, PromptKind::GoToPage);
-        app.on_ime(&pixelkit_windowing::ImeEvent::Commit("3".into()));
+        app.on_ime(&liminalkit_windowing::ImeEvent::Commit("3".into()));
         for (key, expected) in [
             (KeyInput::Enter, 2.0),
             (KeyInput::PageDown, 3.0),
@@ -1319,11 +1500,11 @@ mod input_tests {
         app.run_tab_command(TabCommand::New);
         app.tabs.type_text("second");
         assert_eq!(app.tabs.len(), 2);
-        let mut buffer = pixelkit_raster::WindowBuffer::new(1100, 800);
-        app.render(&mut buffer, pixelkit_shell::Scale::ONE);
+        let mut buffer = liminalkit_raster::WindowBuffer::new(1100, 800);
+        app.render(&mut buffer, liminalkit_shell::Scale::ONE);
         assert!(app.tab_height > 0);
         app.on_cursor(20.0, app.tabs.toolbar_height() as f32 + 10.0);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, true);
         assert_eq!(app.tabs.active_index(), 0);
         assert_eq!(app.tabs.book().plain_text(), "first");
         app.tabs.select(1);
@@ -1333,8 +1514,8 @@ mod input_tests {
     #[test]
     fn compact_file_row_and_tab_offsets_keep_mouse_and_ime_aligned() {
         let mut app = app();
-        let mut buffer = pixelkit_raster::WindowBuffer::new(2200, 1400);
-        let scale = pixelkit_shell::Scale::new(2.0);
+        let mut buffer = liminalkit_raster::WindowBuffer::new(2200, 1400);
+        let scale = liminalkit_shell::Scale::new(2.0);
         app.render(&mut buffer, scale);
         assert_eq!(
             app.tab_height, 0,
@@ -1347,14 +1528,14 @@ mod input_tests {
             .find(|button| button.action == docwrite_app::Action::FileMenu)
             .unwrap();
         app.on_cursor((file.x + file.w / 2) as f32, (file.y + file.h / 2) as f32);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, true);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, false);
         let menu = app.tabs.file_menu().unwrap().clone();
         let (top, h) = menu.row_rect(0).unwrap();
         assert_eq!(menu.items[0].command, Some(TabCommand::New));
         app.on_cursor((menu.x + 20) as f32, (top + h / 2) as f32);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, true);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, false);
         assert_eq!(app.tabs.len(), 2);
         app.tabs.type_text("second manuscript");
         app.render(&mut buffer, scale);
@@ -1366,8 +1547,8 @@ mod input_tests {
             app.tabs.theme().ink
         );
         app.on_cursor(12.0, 60.0);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, true);
-        app.on_mouse(pixelkit_shell::MouseButton::Left, false);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, true);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, false);
         assert_eq!(app.tabs.active_index(), 0);
         app.tabs.open_prompt(PromptKind::GoToPage);
         app.render(&mut buffer, scale);

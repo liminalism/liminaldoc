@@ -5,7 +5,7 @@ writer and lightweight launcher. The source is staged from Lege before its
 own repository is split out. Its AKR ledger belongs to this repository.
 
 Build from here with `cargo check --workspace --all-targets`. The PDF engine
-and PixelKit are sibling workspaces during this extraction. Their paths must
+and liminalkit are sibling workspaces during this extraction. Their paths must
 be remapped before packaging a distributable release.
 
 Run `akr` commands from this repository root. The sibling checkouts (notably

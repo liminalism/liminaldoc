@@ -356,9 +356,9 @@ impl Editor {
     }
 
     /// The folded sidebar's tab: a pull handle at the window's left edge.
-    pub(crate) fn paint_tab(&self, painter: &mut pixelkit_raster::Painter<'_>) {
+    pub(crate) fn paint_tab(&self, painter: &mut liminalkit_raster::Painter<'_>) {
         let s = self.ui_scale;
-        let rect = pixelkit_raster::Rect::new(
+        let rect = liminalkit_raster::Rect::new(
             0,
             (TAB_TOP * s) as i32,
             (TAB_W * s) as i32,
@@ -366,7 +366,7 @@ impl Editor {
         );
         painter.fill_rect(rect, self.theme_now.chrome);
         painter.fill_rect(
-            pixelkit_raster::Rect::new(
+            liminalkit_raster::Rect::new(
                 rect.x + rect.w - (2.0 * s) as i32,
                 rect.y,
                 (2.0 * s) as i32,
@@ -377,7 +377,7 @@ impl Editor {
         // Three short rules: the map, folded.
         for row in 0..3 {
             painter.fill_rect(
-                pixelkit_raster::Rect::new(
+                liminalkit_raster::Rect::new(
                     (6.0 * s) as i32,
                     rect.y + (30.0 * s) as i32 + (row as f32 * 8.0 * s) as i32,
                     (9.0 * s) as i32,
@@ -392,7 +392,7 @@ impl Editor {
     /// on the right, in inches from the page's top-left corner.
     pub(crate) fn paint_status_line(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         width: i32,
         height: i32,
@@ -400,7 +400,7 @@ impl Editor {
         let s = self.ui_scale;
         let bar = (22.0 * s) as i32;
         painter.fill_rect(
-            pixelkit_raster::Rect::new(0, height - bar, width, bar),
+            liminalkit_raster::Rect::new(0, height - bar, width, bar),
             WORDPERFECT.desk,
         );
         let size = 11.0 * s;

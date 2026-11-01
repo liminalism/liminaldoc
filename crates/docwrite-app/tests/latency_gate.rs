@@ -17,7 +17,7 @@ use docwrite_typeset::{Face, book_of_repeated_line};
 
 fn noto() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     std::fs::read(&path).expect("noto")
 }
 
@@ -113,7 +113,7 @@ fn long_book() -> Book {
 #[test]
 fn typing_into_the_editor_stays_inside_the_budget() {
     let mut editor = Editor::with_book(long_book());
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     let opened = Instant::now();
     editor.paint(&mut frame);
     let open = opened.elapsed();
@@ -166,7 +166,7 @@ fn typing_into_the_editor_stays_inside_the_budget() {
 #[test]
 fn seeking_and_paging_a_long_book_reuse_layout_inside_the_budget() {
     let mut editor = Editor::with_book(long_book());
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     let pages = editor.pager().pages();
     assert!(pages >= 450);

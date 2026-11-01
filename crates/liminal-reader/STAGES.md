@@ -266,8 +266,8 @@ Done:
   middle-click are "scroll here": the thumb centres under the pointer and the
   gesture continues as a thumb drag without being released first — middle-click
   on the scrollbar previously did nothing at all. Focus loss ends every pointer
-  gesture, the thumb drag, the held repeat and the processing-panel resize
-  included, because they all live in one `capture` field and the release event
+  gesture, the thumb drag and the held repeat included, because they all
+  live in one `capture` field and the release event
   is going to another window.
 - **Fine movement commands.** Arrow keys still step one text line of the page
   being read. Shift is the precise quarter step and Control the coarse triple

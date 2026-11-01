@@ -34,7 +34,7 @@ impl Editor {
         }
         let book = crate::document_io::import_book(path)?;
         let mut editor = Self::with_book(book);
-        editor.dirty = true;
+        editor.touch();
         Ok(editor)
     }
 
@@ -43,7 +43,7 @@ impl Editor {
     pub fn save_as_bundle(&mut self, path: &Path) -> Result<(), String> {
         self.wait_for_background_save()?;
         if self.bundle.as_deref() == Some(path) {
-            self.dirty = true;
+            self.touch();
             return self.save_now();
         }
         match Book::open_bundle(path).map_err(|err| err.to_string())? {
@@ -54,6 +54,7 @@ impl Editor {
         }
         self.book.save_bundle(path).map_err(|err| err.to_string())?;
         self.bundle = Some(path.to_path_buf());
+        self.drop_recovery();
         self.dirty = false;
         self.last_save_attempt = Instant::now();
         Ok(())
@@ -105,6 +106,9 @@ impl Editor {
     /// Keep polling until a background save has reported success or failure.
     pub fn needs_save_tick(&self) -> bool {
         (self.dirty && self.bundle.is_some())
+            || (self.bundle.is_none()
+                && self.revision != self.recovered_revision
+                && (self.recovery_root.is_some() || crate::recovery::default_root().is_some()))
             || self.saving.load(Ordering::Acquire)
             || self.save_error.lock().is_ok_and(|slot| slot.is_some())
     }
@@ -113,7 +117,7 @@ impl Editor {
     pub fn save_now(&mut self) -> Result<(), String> {
         self.wait_for_background_save()?;
         if let Some(error) = self.take_save_error() {
-            self.dirty = true;
+            self.touch();
             return Err(error);
         }
         self.autosave()?;
@@ -132,15 +136,32 @@ impl Editor {
         interval: crate::autosave::AutosaveInterval,
         now: Instant,
     ) -> bool {
-        if !self.dirty || self.saving.load(Ordering::Acquire) {
+        if self.saving.load(Ordering::Acquire) {
             return false;
         }
-        if now.saturating_duration_since(self.last_save_attempt) < interval.duration() {
-            return false;
-        }
-        let Some(path) = self.bundle.clone() else {
-            return false;
+        let (path, due) = match self.bundle.clone() {
+            Some(path) => (path, interval.duration()),
+            None => {
+                // An untitled draft is kept in an application-owned recovery
+                // bundle, never under a permanent name the author did not pick.
+                let Some(path) = self.recovery_target() else {
+                    return false;
+                };
+                if self.revision == self.recovered_revision
+                    || (self.book.plain_text().is_empty() && !self.book.has_structure())
+                {
+                    return false;
+                }
+                (path, interval.duration().min(crate::recovery::INTERVAL))
+            }
         };
+        if self.bundle.is_some() && !self.dirty {
+            return false;
+        }
+        if now.saturating_duration_since(self.last_save_attempt) < due {
+            return false;
+        }
+        let untitled = self.bundle.is_none();
         let mut copy = self.book.clone();
         let saving = self.saving.clone();
         let error = self.save_error.clone();
@@ -158,7 +179,11 @@ impl Editor {
             });
         match worker {
             Ok(_) => {
-                self.dirty = false;
+                if untitled {
+                    self.recovered_revision = self.revision;
+                } else {
+                    self.dirty = false;
+                }
                 true
             }
             Err(err) => {
@@ -171,12 +196,61 @@ impl Editor {
         }
     }
 
+    /// Record an edit for save and recovery bookkeeping.
+    pub(crate) fn touch(&mut self) {
+        self.dirty = true;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Choose this draft's recovery bundle the first time it is needed.
+    fn recovery_target(&mut self) -> Option<PathBuf> {
+        if self.recovery.is_none() {
+            let root = self
+                .recovery_root
+                .clone()
+                .or_else(crate::recovery::default_root)?;
+            self.recovery = Some(crate::recovery::new_draft_path(&root));
+        }
+        self.recovery.clone()
+    }
+
+    /// Keep unsaved drafts under `root` instead of the user settings directory.
+    pub fn set_recovery_root(&mut self, root: impl Into<PathBuf>) {
+        self.recovery_root = Some(root.into());
+    }
+
+    /// Open a draft left in the recovery directory by an earlier run. It stays
+    /// untitled; the author chooses a name with Save As.
+    pub fn open_recovered(path: &Path) -> Result<Self, String> {
+        let book = Book::load_bundle(path).map_err(|err| err.to_string())?;
+        let mut editor = Self::with_book(book);
+        editor.recovery = Some(path.to_path_buf());
+        editor.recovered_revision = editor.revision;
+        editor.touch();
+        editor.recovered_revision = editor.revision;
+        editor.follow_caret = true;
+        Ok(editor)
+    }
+
+    /// The recovery bundle holding this untitled draft, once one exists.
+    pub fn recovery_path(&self) -> Option<&Path> {
+        self.recovery.as_deref()
+    }
+
+    /// Delete the recovery bundle: the draft now has a real home or was discarded.
+    pub(crate) fn drop_recovery(&mut self) {
+        let _ = self.wait_for_background_save();
+        if let Some(path) = self.recovery.take() {
+            crate::recovery::remove(&path);
+        }
+    }
+
     /// The error from the last background save, if it failed. Taking it
     /// marks the book dirty again so the next save retries.
     pub fn take_save_error(&mut self) -> Option<String> {
         let error = self.save_error.lock().ok().and_then(|mut slot| slot.take());
         if error.is_some() {
-            self.dirty = true;
+            self.touch();
         }
         error
     }
@@ -839,7 +913,7 @@ impl Editor {
     /// Record an edit: the layout is stale, the view follows the caret, and
     /// autosave keeps its existing deadline.
     pub(crate) fn edited(&mut self) {
-        self.dirty = true;
+        self.touch();
         self.layout_stale = true;
         self.follow_caret = true;
     }

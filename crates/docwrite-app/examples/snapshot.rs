@@ -61,7 +61,7 @@ fn main() {
         1100.0
     };
     let (width, height) = ((base_w * scale) as u32, (800.0 * scale) as u32);
-    let mut frame = pixelkit_raster::WindowBuffer::new(width, height);
+    let mut frame = liminalkit_raster::WindowBuffer::new(width, height);
     editor.paint(&mut frame);
     editor.jump_to_page(page);
     if let Some(text) = &footnote {
@@ -89,6 +89,6 @@ fn main() {
         editor.hover((menu.x + 20) as f32, (top + h / 2) as f32);
     }
     editor.paint(&mut frame);
-    pixelkit_raster::png::write(out.as_str(), &frame).expect("write png");
+    liminalkit_raster::png::write(out.as_str(), &frame).expect("write png");
     println!("wrote {out}: page {page} of {}", editor.pages_painted());
 }

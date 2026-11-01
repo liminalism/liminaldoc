@@ -75,11 +75,6 @@ pub enum PointerCapture {
     SidebarResize {
         initial_width: f64,
     },
-    ProcessingPanelResize {
-        origin: PointF,
-        initial_width: f64,
-        initial_height: f64,
-    },
     Selection {
         anchor: PointF,
     },

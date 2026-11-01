@@ -251,6 +251,10 @@ impl Chapter {
         &self.sections
     }
 
+    pub(crate) fn sections_mut(&mut self) -> &mut Vec<Section> {
+        &mut self.sections
+    }
+
     pub(crate) fn set_title(&mut self, title: String) {
         self.title = title;
     }
@@ -401,6 +405,23 @@ impl Book {
         &mut self.parts
     }
 
+    pub(crate) fn parts_vec_mut(&mut self) -> &mut Vec<Part> {
+        &mut self.parts
+    }
+
+    pub(crate) fn chapter_mut(&mut self, id: ChapterId) -> Result<&mut Chapter, ModelError> {
+        self.parts
+            .iter_mut()
+            .flat_map(|part| part.chapters.iter_mut())
+            .find(|chapter| chapter.id == id)
+            .ok_or(ModelError::UnknownChapter(id))
+    }
+
+    /// Part and in-part index of chapter `id`.
+    pub(crate) fn chapter_position(&self, id: ChapterId) -> Result<(usize, usize), ModelError> {
+        self.chapter_index(id)
+    }
+
     /// Current selection.
     pub fn selection(&self) -> Selection {
         self.selection
@@ -477,47 +498,46 @@ impl Book {
             })
     }
 
-    /// Append a part with no chapters.
-    ///
-    /// Structural builders are not edit transactions. They clear undo and redo
-    /// so a later undo cannot revive a block index from before the builder ran.
     /// Give chapter `id` a new title. The title heads the chapter's opener
-    /// page, its running heads, the Book Map and every export.
+    /// page, its running heads, the Book Map and every export. One undo step.
     pub fn rename_chapter(
         &mut self,
         id: ChapterId,
         title: impl Into<String>,
     ) -> Result<(), ModelError> {
-        let chapter = self
-            .parts_mut()
-            .iter_mut()
-            .flat_map(|part| part.chapters_mut().iter_mut())
-            .find(|chapter| chapter.id() == id)
-            .ok_or(ModelError::Inconsistent("chapter id"))?;
-        chapter.set_title(title.into());
-        Ok(())
+        let new = title.into();
+        let old = self.chapter_mut(id)?.title().to_string();
+        if old == new {
+            return Ok(());
+        }
+        self.record(crate::edit::Change::RenameChapter { id, old, new })
     }
 
     /// Add a part titled `title` after the last. Returns its id.
+    ///
+    /// Structural builders are undoable transactions: ids are allocated once,
+    /// so undo then redo restores the same ids.
     pub fn add_part(&mut self, title: impl Into<String>) -> PartId {
         let id = self.ids.part();
-        self.parts.push(Part {
+        let part = Part {
             id,
             title: title.into(),
             chapters: Vec::new(),
-        });
-        self.forget_history();
+        };
+        let index = self.parts.len();
+        let _ = self.record(crate::edit::Change::InsertPart { index, part });
         id
     }
 
     /// Append a chapter with one empty section and one empty body block.
     ///
-    /// See [`Self::add_part`] for the undo consequence.
+    /// See [`Self::add_part`] for the undo behavior.
     pub fn add_chapter(
         &mut self,
         part: PartId,
         title: impl Into<String>,
     ) -> Result<ChapterId, ModelError> {
+        let part_index = self.part_index(part)?;
         let chapter_id = self.ids.chapter();
         let block_id = self.ids.block();
         let section = Section {
@@ -531,21 +551,24 @@ impl Book {
             template: "Chapter".to_string(),
             sections: vec![section],
         };
-        let part_index = self.part_index(part)?;
-        self.parts[part_index].chapters.push(chapter);
-        self.reindex();
-        self.forget_history();
+        let index = self.parts[part_index].chapters.len();
+        self.record(crate::edit::Change::InsertChapter {
+            part: part_index,
+            index,
+            chapter,
+        })?;
         Ok(chapter_id)
     }
 
     /// Append a section with one empty body block.
     ///
-    /// See [`Self::add_part`] for the undo consequence.
+    /// See [`Self::add_part`] for the undo behavior.
     pub fn add_section(
         &mut self,
         chapter: ChapterId,
         heading: impl Into<String>,
     ) -> Result<SectionId, ModelError> {
+        let (part_index, chapter_index) = self.chapter_index(chapter)?;
         let section_id = self.ids.section();
         let block_id = self.ids.block();
         let section = Section {
@@ -553,12 +576,15 @@ impl Book {
             heading: heading.into(),
             blocks: vec![Block::empty(block_id, BlockKind::Body)],
         };
-        let (part_index, chapter_index) = self.chapter_index(chapter)?;
-        self.parts[part_index].chapters[chapter_index]
+        let index = self.parts[part_index].chapters[chapter_index]
             .sections
-            .push(section);
-        self.reindex();
-        self.forget_history();
+            .len();
+        self.record(crate::edit::Change::InsertSection {
+            part: part_index,
+            chapter: chapter_index,
+            index,
+            section,
+        })?;
         Ok(section_id)
     }
 
@@ -722,11 +748,6 @@ impl Book {
 
     pub(crate) fn notes(&self) -> &BTreeMap<NoteId, Note> {
         &self.notes
-    }
-
-    fn forget_history(&mut self) {
-        self.undo.clear();
-        self.redo.clear();
     }
 
     fn part_index(&self, id: PartId) -> Result<usize, ModelError> {

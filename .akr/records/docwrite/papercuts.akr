@@ -106,6 +106,17 @@ record docwrite.papercut.akr-context-accepts-revision-qualified-goals/1 : paperc
     created_at 2026-10-15
 }
 
+record docwrite.papercut.akr-context-rejected-positional-goal-its-cli/1 : papercut {
+    title "akr context rejected positional goal; its CLI requires --goal."
+    state verified
+    statement """
+        akr context rejected positional goal; its CLI requires --goal.
+        """
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    author "codex"
+    created_at 2026-11-01
+}
+
 record docwrite.papercut.akr-propose-rejected-repeated-implements/1 : papercut {
     title "AKR propose rejected repeated implements relation slots while recording…"
     state verified
@@ -115,6 +126,17 @@ record docwrite.papercut.akr-propose-rejected-repeated-implements/1 : papercut {
     observed_at git:3b94ed41037168dfa2afcdc3b31b8951096e1874
     author "codex"
     created_at 2026-10-14
+}
+
+record docwrite.papercut.cargo-fmt-all-traverses-sibling-path/1 : papercut {
+    title "cargo fmt --all traverses sibling path dependencies and reports…"
+    state verified
+    statement """
+        cargo fmt --all traverses sibling path dependencies and reports read-only filesystem errors outside this workspace; use package-scoped formatting.
+        """
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    author "codex"
+    created_at 2026-11-01
 }
 
 record docwrite.papercut.cargo-fmt-all-traverses-sibling-path-workspaces/1 : papercut {
@@ -217,6 +239,18 @@ record docwrite.papercut.preparing-the-requested-clean-tree-commit/1 : papercut 
     observed_at git:291f3732ffe2835f5cdeb7f5ba986d0542697fa0
     author "codex"
     created_at 2026-10-15
+}
+
+record docwrite.papercut.recoloring-the-lege-app-icon-a-256px-rgba-png/1 : papercut {
+    title "Recoloring the Lege app icon (a 256px RGBA PNG with transparent…"
+    state verified
+    statement """
+        Recoloring the Lege app icon (a 256px RGBA PNG with transparent corners) via image_edit returned a 1024px JPEG. The black matte where the alpha had been had to be flood-filled back out and unpremultiplied before the icon could be saved as the PNG the window-icon path decodes.
+        """
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    about "image_edit"
+    author "grok"
+    created_at 2026-11-01
 }
 
 record docwrite.papercut.starting-writer-work-tried-akr-context-key/1 : papercut {

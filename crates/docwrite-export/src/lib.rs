@@ -44,9 +44,14 @@ pub fn blocks_of(book: &Book) -> Vec<ExportBlock> {
                 .flat_map(|section| section.blocks())
                 .next()
                 .is_some_and(|block| matches!(block.kind(), BlockKind::ChapterTitle));
-            if !titled && !chapter.title().is_empty() {
-                // The title is chapter metadata; it heads the chapter in
-                // every export, as it does on the opener page.
+            let show_title = book
+                .chapter_templates()
+                .iter()
+                .find(|template| template.name == chapter.template())
+                .is_some_and(|template| template.show_title);
+            if show_title && !titled && !chapter.title().is_empty() {
+                // The title is chapter metadata. It heads the chapter in an
+                // export exactly when the template sets it on the opener page.
                 out.push(ExportBlock {
                     kind: "heading".into(),
                     text: chapter.title().to_string(),

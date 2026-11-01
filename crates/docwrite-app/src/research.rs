@@ -9,7 +9,7 @@ use std::sync::Arc;
 use docwrite_model::SourceNote;
 use docwrite_typeset::Face;
 use lege_pdf_read::{NativeTextWord, RasterPlane, RasterProduct, RenderSession};
-use pixelkit_raster::{Bitmap, Rect, ScaleFilter};
+use liminalkit_raster::{Bitmap, Rect, ScaleFilter};
 
 use crate::Editor;
 use crate::toolbar::PromptKind;
@@ -204,7 +204,7 @@ impl Editor {
                 .map(|source| source.rects.clone())
                 .unwrap_or_default();
         }
-        self.dirty = true;
+        self.touch();
         self.open_prompt(PromptKind::Citation);
         self.prompt_type(&citation);
         Some(id)
@@ -224,7 +224,7 @@ impl Editor {
                 source.citation = text.trim().to_string();
             }
             self.book.update_source(source);
-            self.dirty = true;
+            self.touch();
         }
     }
 
@@ -484,7 +484,7 @@ impl Editor {
     /// Draw the pane: header, page image, selection and citation highlights.
     pub(crate) fn paint_research(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         width: i32,
         height: i32,
@@ -567,7 +567,7 @@ impl Editor {
             Rect::new(x0, y0, *w as i32, *h as i32),
             ScaleFilter::Nearest,
         );
-        let mark = |painter: &mut pixelkit_raster::Painter<'_>, rect: [f32; 4], color: u32| {
+        let mark = |painter: &mut liminalkit_raster::Painter<'_>, rect: [f32; 4], color: u32| {
             let r = Rect::new(
                 x0 + rect[0] as i32,
                 y0 + rect[1] as i32,

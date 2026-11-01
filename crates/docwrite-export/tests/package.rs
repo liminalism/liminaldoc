@@ -11,7 +11,7 @@ use lege_pdf_read::{RenderSession, page_text, positioned_words};
 
 fn font() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     std::fs::read(path).unwrap()
 }
 
@@ -231,8 +231,11 @@ fn pdf_pages_are_the_typeset_pages_and_visibly_inked() {
 }
 
 #[test]
-fn markdown_heads_each_chapter_with_its_title() {
+fn markdown_heads_each_chapter_with_its_title_when_the_template_shows_it() {
     let mut book = Book::new("Essay");
+    let mut template = book.chapter_templates()[0].clone();
+    template.show_title = true;
+    book.set_chapter_template(template).unwrap();
     book.insert("First words.").unwrap();
     let part = book.parts()[0].id();
     book.add_chapter(part, "The Second").unwrap();
@@ -265,4 +268,20 @@ fn pdf_sets_footnotes_at_the_foot_of_their_page() {
     let body = squashed.find("A sentence").unwrap();
     let foot = squashed.find("The footnote").unwrap();
     assert!(body < foot, "the footnote reads after the body");
+}
+
+#[test]
+fn exports_set_a_chapter_title_only_when_the_template_does() {
+    let mut book = Book::new("Essay");
+    book.insert("Body text.").unwrap();
+    assert!(!export_markdown(&book).contains("Chapter 1"));
+    let mut template = book.chapter_templates()[0].clone();
+    template.show_title = true;
+    book.set_chapter_template(template).unwrap();
+    assert!(export_markdown(&book).contains("Chapter 1"));
+    // A chapter that opens with its own title block is not given a second one.
+    let id = book.block_ids()[0];
+    book.set_kind(id, BlockKind::ChapterTitle).unwrap();
+    assert_eq!(export_markdown(&book).matches("Body text.").count(), 1);
+    assert!(!export_markdown(&book).contains("Chapter 1"));
 }

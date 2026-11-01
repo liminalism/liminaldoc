@@ -6,7 +6,7 @@ use docwrite_app::{Action, Editor, PromptKind};
 use docwrite_model::{Align, BlockKind, Mark, NoteKind, Position, Selection};
 
 fn frame(editor: &mut Editor) {
-    let mut buffer = pixelkit_raster::WindowBuffer::new(1400, 800);
+    let mut buffer = liminalkit_raster::WindowBuffer::new(1400, 800);
     editor.paint(&mut buffer);
 }
 
@@ -70,7 +70,7 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
 #[test]
 fn compact_chapter_and_note_controls_work_and_pages_stay_below_them() {
     let mut editor = Editor::new();
-    let mut buffer = pixelkit_raster::WindowBuffer::new(640, 800);
+    let mut buffer = liminalkit_raster::WindowBuffer::new(640, 800);
     editor.paint(&mut buffer);
     click_at_width(&mut editor, Action::NewChapter, 640);
     editor.prompt_type("Narrow window chapter");
@@ -101,7 +101,7 @@ fn compact_chapter_and_note_controls_work_and_pages_stay_below_them() {
     assert!(editor.caret_area().unwrap().y > f64::from(toolbar_bottom));
 
     // Resizing back to a wide window restores one row and working hit targets.
-    let mut wide = pixelkit_raster::WindowBuffer::new(2000, 1000);
+    let mut wide = liminalkit_raster::WindowBuffer::new(2000, 1000);
     editor.paint(&mut wide);
     assert!(
         editor

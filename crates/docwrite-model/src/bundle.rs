@@ -7,7 +7,13 @@
 //! link). Ids survive a round trip, and reordering chapters rewrites only
 //! `book.json`. Format 1 bundles (`manifest.txt` plus text chapters) still
 //! open. A save writes a whole new directory beside the old one and swaps it
-//! in. Opening detects an old generation left by an interrupted swap.
+//! in. Opening detects an old generation left by an interrupted swap, and
+//! falls back to it when the live generation cannot be read.
+//!
+//! Writes are durable: every staged file and directory is synced, the staged
+//! bundle is read back and validated before it replaces the live one, and the
+//! parent directory is synced after each rename. An `assets/` directory (the
+//! images a book owns) is carried into every new generation.
 
 use std::fs;
 use std::io;
@@ -81,7 +87,15 @@ impl Book {
                     ),
                 });
             }
-            return Self::load_existing_bundle(directory).map(BundleOpen::Existing);
+            return match Self::load_existing_bundle(directory) {
+                Ok(book) => Ok(BundleOpen::Existing(book)),
+                // The live generation is unreadable: the last valid
+                // generation, if an interrupted save left one, is the book.
+                Err(err) => match Self::load_existing_bundle(&old) {
+                    Ok(book) if Self::is_bundle(&old) => Ok(BundleOpen::Recovered(book)),
+                    _ => Err(err),
+                },
+            };
         }
         if old.exists() {
             if !Self::is_bundle(&old) {
@@ -102,10 +116,10 @@ impl Book {
         Ok(BundleOpen::New)
     }
 
-    /// Stage the manuscript, styles, and selection beside `directory`, then
-    /// swap directory names. This does not yet provide a durable fsync contract.
+    /// Stage the manuscript, styles, and selection beside `directory`, sync
+    /// and validate the staged bundle, then swap directory names.
     ///
-    /// A `snapshots/` directory already inside the bundle is kept.
+    /// `snapshots/` and `assets/` directories already inside the bundle are kept.
     pub fn save_bundle(&mut self, directory: &Path) -> Result<(), BundleError> {
         let parent = bundle_parent(directory);
         let file_name = directory.file_name().ok_or_else(|| BundleError {
@@ -175,32 +189,64 @@ impl Book {
         let (manifest, chapters) = self.to_manifest();
         for chapter in chapters {
             let json = serde_json::to_string_pretty(chapter).map_err(json_error)?;
-            fs::write(temp.join("chapters").join(chapter_file(chapter)), json)?;
+            write_synced(&temp.join("chapters").join(chapter_file(chapter)), &json)?;
+        }
+        sync_dir(&temp.join("chapters"))?;
+        // Assets are owned by the bundle, not by the book tree, so a new
+        // generation carries them over (hard links where the filesystem can).
+        let assets = directory.join("assets");
+        if assets.is_dir() {
+            copy_tree(&assets, &temp.join("assets"))?;
         }
         // The manifest goes last: a bundle without one is not a bundle.
         let json = serde_json::to_string_pretty(&manifest).map_err(json_error)?;
-        fs::write(temp.join("book.json"), json)?;
+        write_synced(&temp.join("book.json"), &json)?;
+        sync_dir(&temp)?;
+        // Read the staged generation back. A write that cannot be reopened
+        // must never replace the live bundle.
+        if let Err(err) = Self::load_existing_bundle(&temp) {
+            let _ = fs::remove_dir_all(&temp);
+            return Err(BundleError {
+                message: format!("staged bundle failed validation: {err}"),
+            });
+        }
         // Swap: the old bundle steps aside before the new one takes its
         // name, and is only deleted once the new one is in place.
         // A recovered book may have no live directory yet. Keep its old
         // generation until the replacement has landed successfully.
         if old.exists() && directory.exists() {
-            if !Self::is_bundle(directory) {
-                return Err(BundleError {
-                    message: format!(
-                        "{} is damaged; keeping its recovery generation",
-                        directory.display()
-                    ),
-                });
+            if Self::load_existing_bundle(directory).is_err() {
+                // The live generation is unreadable but a valid old one
+                // exists. Set the damaged copy aside for inspection and let
+                // the staged generation take its place; the old generation
+                // stays until that has landed.
+                if !Self::is_bundle(&old) {
+                    return Err(BundleError {
+                        message: format!(
+                            "{} is damaged and has no valid recovery generation",
+                            directory.display()
+                        ),
+                    });
+                }
+                let damaged = parent.join(format!(".{}.damaged", file_name.to_string_lossy()));
+                if damaged.exists() {
+                    fs::remove_dir_all(&damaged)?;
+                }
+                fs::rename(directory, &damaged)?;
+                sync_dir(parent)?;
+            } else {
+                fs::remove_dir_all(&old)?;
             }
-            fs::remove_dir_all(&old)?;
         }
         if directory.exists() {
             fs::rename(directory, &old)?;
+            sync_dir(parent)?;
         }
         fs::rename(&temp, directory)?;
+        sync_dir(parent)?;
         if old.exists() {
             fs::remove_dir_all(&old)?;
+            sync_dir(parent)?;
         }
         Ok(())
     }
@@ -425,6 +471,42 @@ fn parse_chapter(text: &str) -> ParsedChapter {
         blocks.push(current);
     }
     ParsedChapter { title, blocks }
+}
+
+/// Write `contents` and force it to stable storage before returning.
+fn write_synced(path: &Path, contents: &str) -> io::Result<()> {
+    use std::io::Write;
+    let mut file = fs::File::create(path)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()
+}
+
+/// Force a directory's entries (new files, renames) to stable storage.
+fn sync_dir(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        fs::File::open(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// Copy a directory tree, hard-linking files when possible.
+fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if fs::hard_link(entry.path(), &target).is_err() {
+            fs::copy(entry.path(), &target)?;
+        }
+    }
+    sync_dir(to)
 }
 
 fn bundle_parent(directory: &Path) -> &Path {

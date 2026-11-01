@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
-use winit::dpi::PhysicalSize;
+use winit::dpi::LogicalSize;
 use winit::event::{
     ElementState, Ime, MouseButton, MouseScrollDelta, Touch, TouchPhase, WindowEvent,
 };
@@ -32,11 +32,6 @@ use crate::input::{
 use crate::measure::{MeasureState, MeasuredPoint};
 use crate::paint::scroll_exposed_regions;
 use crate::present::{Presenter, PresenterBackend, PresenterPreference, ScrollReuse};
-use crate::processing::{
-    self, Binarization, CoverMode, ImageProcessing, MarginMode, OcrMode, OutputFormat,
-    ProcessingOptions, ProcessingProfile, ProcessingRequest, ProcessingScope, ProcessingUpdate,
-    TextCompression,
-};
 use crate::scene::{FrameScene, ImageSampling, SceneBuilder, SceneSurface};
 use crate::scroll::{
     DocumentLocation, NavigationHistory, PagingDirection, ReadingAnchor, ScrollCommand, ScrollMode,
@@ -189,91 +184,10 @@ struct SearchUiState {
     total_pages: u32,
 }
 
-#[derive(Debug, Clone)]
-struct ProcessingUiState {
-    visible: bool,
-    profile: ProcessingProfile,
-    tab: ProcessingTab,
-    open_option: Option<usize>,
-    resolution_editing: bool,
-    resolution_buffer: String,
-    options: ProcessingOptions,
-    scope: ProcessingScope,
-    running: bool,
-    title: String,
-    detail: String,
-    original: Option<std::path::PathBuf>,
-    output: Option<std::path::PathBuf>,
-    result_visible: bool,
-    result_ready: bool,
-    viewing_new: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProcessingTab {
-    Output,
-    Recognition,
-    Page,
-}
-
-impl ProcessingTab {
-    const ALL: [Self; 3] = [Self::Output, Self::Recognition, Self::Page];
-
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Output => "Output",
-            Self::Recognition => "Recognition",
-            Self::Page => "Page + geometry",
-        }
-    }
-}
-
-/// Page tab row holding the mutually exclusive Crop / Center / Reflow
-/// segment. Mirrors the margin trio of the earlier Freya GUI.
-const LAYOUT_ROW: usize = 1;
-/// Page tab row holding the editable target-resolution field.
-const RESOLUTION_ROW: usize = 5;
-const LAYOUT_SEGMENTS: [&str; 3] = ["Crop", "Center", "Reflow"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProcessingPanelAction {
-    Run,
-    ToggleProfile,
-    Tab(ProcessingTab),
-    Option(usize),
-    Choice { option: usize, choice: usize },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HoverControl {
     Toolbar(ToolbarAction),
-    Processing(ProcessingPanelAction),
     Appearance(ColorMode),
-    Result(bool),
-}
-
-impl Default for ProcessingUiState {
-    fn default() -> Self {
-        Self {
-            visible: false,
-            profile: ProcessingProfile::Reading,
-            tab: ProcessingTab::Output,
-            open_option: None,
-            resolution_editing: false,
-            resolution_buffer: "1200".to_owned(),
-            options: ProcessingOptions::default(),
-            scope: ProcessingScope::Document,
-            running: false,
-            title: "Ready to process".to_owned(),
-            detail: "Choose Process for the whole document, or select the current page first."
-                .to_owned(),
-            original: None,
-            output: None,
-            result_visible: false,
-            result_ready: false,
-            viewing_new: false,
-        }
-    }
 }
 
 struct ChromeSurfacePlacement {
@@ -290,7 +204,6 @@ enum ToolbarAction {
     FitPage,
     ToggleSidebar,
     ToggleTrim,
-    ToggleProcessing,
     ToggleOptions,
 }
 
@@ -302,9 +215,7 @@ const ZOOM_GROUP_X: f64 = OPEN_GROUP_X + OPEN_GROUP_WIDTH;
 const ZOOM_GROUP_WIDTH: f64 = 214.0;
 const DOCUMENT_GROUP_X: f64 = ZOOM_GROUP_X + ZOOM_GROUP_WIDTH;
 const DOCUMENT_GROUP_WIDTH: f64 = 140.0;
-const PROCESS_GROUP_X: f64 = DOCUMENT_GROUP_X + DOCUMENT_GROUP_WIDTH;
-const PROCESS_GROUP_WIDTH: f64 = 84.0;
-const OPTIONS_GROUP_X: f64 = PROCESS_GROUP_X + PROCESS_GROUP_WIDTH;
+const OPTIONS_GROUP_X: f64 = DOCUMENT_GROUP_X + DOCUMENT_GROUP_WIDTH;
 const OPTIONS_GROUP_WIDTH: f64 = 96.0;
 const SEARCH_FIELD_X: f64 = OPTIONS_GROUP_X + OPTIONS_GROUP_WIDTH + 10.0;
 
@@ -317,7 +228,6 @@ fn toolbar_action_at(x: f64) -> Option<ToolbarAction> {
         x if x < ZOOM_GROUP_X + 214.0 => Some(ToolbarAction::FitPage),
         x if x < DOCUMENT_GROUP_X + 78.0 => Some(ToolbarAction::ToggleSidebar),
         x if x < DOCUMENT_GROUP_X + 140.0 => Some(ToolbarAction::ToggleTrim),
-        x if x < PROCESS_GROUP_X + PROCESS_GROUP_WIDTH => Some(ToolbarAction::ToggleProcessing),
         x if x < OPTIONS_GROUP_X + OPTIONS_GROUP_WIDTH => Some(ToolbarAction::ToggleOptions),
         _ => None,
     }
@@ -583,12 +493,10 @@ pub struct ViewerApp {
     search_request: u64,
     search_index_revision: u64,
     search_ui: SearchUiState,
-    processing_ui: ProcessingUiState,
-    processing_panel_width: f64,
-    processing_panel_height: f64,
     options_visible: bool,
-    processing_proxy: Option<EventLoopProxy<ViewerEvent>>,
-    processing_control: Option<processing::ProcessingControl>,
+    /// Event-loop proxy for work that has to report back onto this thread,
+    /// notably GPU preparation. Absent in headless tests.
+    event_proxy: Option<EventLoopProxy<ViewerEvent>>,
     selection: SelectionModel,
     outline_synthesizer: OutlineSynthesizer,
     outline: Arc<[OutlineNode]>,
@@ -792,18 +700,8 @@ impl ViewerApp {
                 total_pages: engine.descriptor().page_count,
                 ..SearchUiState::default()
             },
-            processing_ui: ProcessingUiState {
-                original: engine.source_path().map(std::path::Path::to_path_buf),
-                // With nothing to read yet, the processing workspace is the
-                // most useful thing to show, so it starts expanded.
-                visible: engine.descriptor().page_count == 0,
-                ..ProcessingUiState::default()
-            },
-            processing_panel_width: 540.0,
-            processing_panel_height: 370.0,
             options_visible: false,
-            processing_proxy: None,
-            processing_control: None,
+            event_proxy: None,
             clipboard_notice: None,
             measure: MeasureState::default(),
             selection: SelectionModel::default(),
@@ -889,11 +787,11 @@ impl ViewerApp {
         }
     }
 
-    /// Connect the desktop-only processing worker to this application's event
-    /// loop. Keeping construction independent of winit makes viewer tests and
-    /// headless renderer tools stay lightweight.
+    /// Connect background results, such as GPU preparation, to this
+    /// application's event loop. Keeping construction independent of winit
+    /// makes viewer tests and headless renderer tools stay lightweight.
     pub fn set_event_proxy(&mut self, proxy: EventLoopProxy<ViewerEvent>) {
-        self.processing_proxy = Some(proxy);
+        self.event_proxy = Some(proxy);
     }
 
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), String> {
@@ -901,13 +799,21 @@ impl ViewerApp {
             return Ok(());
         }
         let attributes = Window::default_attributes()
-            .with_title(format!("Lege — {}", self.engine.descriptor().display_name))
-            .with_inner_size(PhysicalSize::new(1280, 900))
-            .with_min_inner_size(PhysicalSize::new(640, 420));
+            .with_title(window_title(&self.engine.descriptor().display_name))
+            .with_inner_size(LogicalSize::new(1280, 900))
+            .with_min_inner_size(LogicalSize::new(640, 420))
+            .with_window_icon(window_icon());
+        // Wayland app_id and X11 WM_CLASS. The desktop file's StartupWMClass
+        // uses the same string, so the panel can pair the window with its icon.
+        #[cfg(target_os = "linux")]
+        let attributes = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            attributes.with_name("liminaldoc-reader", "liminaldoc-reader")
+        };
         let window = Arc::new(
             event_loop
                 .create_window(attributes)
-                .map_err(|error| format!("failed to create Lege window: {error}"))?,
+                .map_err(|error| format!("failed to create {WINDOW_TITLE} window: {error}"))?,
         );
         self.scale_factor = window.scale_factor();
         let size = window.inner_size();
@@ -919,7 +825,7 @@ impl ViewerApp {
             feature = "softbuffer-presenter",
             feature = "wgpu-presenter"
         )) && self.presenter_preference == PresenterPreference::Auto
-            && self.processing_proxy.is_some();
+            && self.event_proxy.is_some();
         self.presenter = Some(if software_start {
             match create_software_presenter(window.clone(), size.width.max(1), size.height.max(1)) {
                 Ok(presenter) => presenter,
@@ -951,7 +857,7 @@ impl ViewerApp {
         self.window = Some(window);
         if software_start {
             #[cfg(all(feature = "softbuffer-presenter", feature = "wgpu-presenter"))]
-            if let Some(proxy) = self.processing_proxy.clone() {
+            if let Some(proxy) = self.event_proxy.clone() {
                 // Only adapter/device discovery runs here. In particular, WGPU
                 // surface creation/configuration must remain on the window thread.
                 if let Err(error) = std::thread::Builder::new()
@@ -1028,12 +934,11 @@ impl ViewerApp {
         self.scene.resize(width.max(1), height.max(1));
         self.damage.resize(width.max(1), height.max(1));
         self.pending_scroll_reuse = None;
-        if !self.surface_suspended
-            && let Some(presenter) = self.presenter.as_mut()
-            && let Err(error) = presenter.resize(width, height)
-        {
-            eprintln!("viewer presenter resize deferred after error: {error}");
-        }
+        // The presenter is not resized here: a border drag delivers one
+        // `Resized` per pointer motion, and reconfiguring the swapchain for
+        // each intermediate size is what made the window flash through them
+        // and the content trail the border. Each presenter adopts the scene
+        // size on the frame that is actually drawn.
         self.app_layout = AppLayout::calculate(
             SizeF {
                 width: f64::from(width),
@@ -1568,9 +1473,6 @@ impl ViewerApp {
     }
 
     fn set_search_open(&mut self, open: bool) {
-        if open {
-            self.commit_resolution_edit();
-        }
         self.search_ui.open = open;
         self.search_ui.preedit.clear();
         if open {
@@ -1922,18 +1824,6 @@ impl ViewerApp {
             if delta.x != 0.0 || delta.y != 0.0 {
                 self.scroll_by(ScrollCommand::DragPan(delta));
             }
-            return;
-        }
-        if let Some(PointerCapture::ProcessingPanelResize {
-            origin,
-            initial_width,
-            initial_height,
-        }) = self.input.capture
-        {
-            self.processing_panel_width = (initial_width + x - origin.x).max(320.0);
-            self.processing_panel_height = (initial_height + y - origin.y).max(350.0);
-            self.damage.mark_full();
-            self.request_redraw();
             return;
         }
         if matches!(self.input.capture, Some(PointerCapture::Selection { .. })) {
@@ -2390,49 +2280,6 @@ impl ViewerApp {
         self.input.left_button_down = state == ElementState::Pressed;
         match state {
             ElementState::Pressed => {
-                if let Some(show_new) = self.result_choice_at(self.input.pointer_position) {
-                    self.switch_processing_result(show_new);
-                    return;
-                }
-                if self.processing_resize_handle_contains(self.input.pointer_position) {
-                    self.input.capture = Some(PointerCapture::ProcessingPanelResize {
-                        origin: self.input.pointer_position,
-                        initial_width: self.processing_panel_width,
-                        initial_height: self.processing_panel_height,
-                    });
-                    return;
-                }
-                let processing_action =
-                    self.processing_panel_action_at(self.input.pointer_position);
-                if self.processing_ui.resolution_editing
-                    && processing_action != Some(ProcessingPanelAction::Option(RESOLUTION_ROW))
-                {
-                    self.commit_resolution_edit();
-                }
-                if let Some(action) = processing_action {
-                    match action {
-                        ProcessingPanelAction::Run => self.start_processing(),
-                        ProcessingPanelAction::ToggleProfile => self.toggle_processing_profile(),
-                        ProcessingPanelAction::Tab(tab) => {
-                            self.processing_ui.tab = tab;
-                            self.processing_ui.open_option = None;
-                            self.damage.mark_full();
-                            self.request_redraw();
-                        }
-                        ProcessingPanelAction::Option(index) => {
-                            self.activate_processing_option(index);
-                        }
-                        ProcessingPanelAction::Choice { option, choice } => {
-                            self.select_processing_option_choice(option, choice);
-                        }
-                    }
-                    return;
-                }
-                self.commit_resolution_edit();
-                if self.processing_ui.open_option.take().is_some() {
-                    self.damage.mark_full();
-                    self.request_redraw();
-                }
                 if let Some(mode) = self.options_color_at(self.input.pointer_position) {
                     self.set_color_mode(mode);
                     self.options_visible = false;
@@ -2466,7 +2313,6 @@ impl ViewerApp {
                         }
                         Some(ToolbarAction::ToggleSidebar) => self.toggle_sidebar(),
                         Some(ToolbarAction::ToggleTrim) => self.toggle_trim(),
-                        Some(ToolbarAction::ToggleProcessing) => self.toggle_processing_workspace(),
                         Some(ToolbarAction::ToggleOptions) => self.toggle_options_popup(),
                         None => {}
                     }
@@ -2673,25 +2519,6 @@ impl ViewerApp {
         }
     }
 
-    fn processing_panel_rect(&self) -> Option<RectF> {
-        let canvas = self.app_layout.canvas;
-        if canvas.width < 344.0 || canvas.height < 360.0 {
-            return None;
-        }
-        let width = self
-            .processing_panel_width
-            .clamp(320.0, (canvas.width - 24.0).max(320.0));
-        let height = self
-            .processing_panel_height
-            .clamp(350.0, (canvas.height - 24.0).max(350.0));
-        Some(RectF {
-            x: canvas.x + 14.0,
-            y: canvas.y + 14.0,
-            width,
-            height,
-        })
-    }
-
     fn options_panel_rect(&self) -> Option<RectF> {
         const WIDTH: f64 = 292.0;
         const HEIGHT: f64 = 206.0;
@@ -2704,33 +2531,7 @@ impl ViewerApp {
         })
     }
 
-    fn result_switch_rect(&self) -> Option<RectF> {
-        if !self.processing_ui.result_visible {
-            return None;
-        }
-        let canvas = self.app_layout.canvas;
-        let width = 330.0_f64.min((canvas.width - 28.0).max(0.0));
-        (width >= 220.0).then_some(RectF {
-            x: canvas.x + (canvas.width - width) * 0.5,
-            y: canvas.y + 8.0,
-            width,
-            height: 38.0,
-        })
-    }
-
-    fn result_choice_at(&self, point: PointF) -> Option<bool> {
-        let rect = self.result_switch_rect()?;
-        rect.contains(point)
-            .then_some(point.x >= rect.x + rect.width * 0.5)
-    }
-
     fn hover_control_at(&self, point: PointF) -> Option<HoverControl> {
-        if let Some(choice) = self.result_choice_at(point) {
-            return Some(HoverControl::Result(choice));
-        }
-        if let Some(action) = self.processing_panel_action_at(point) {
-            return Some(HoverControl::Processing(action));
-        }
         if let Some(mode) = self.options_color_at(point) {
             return Some(HoverControl::Appearance(mode));
         }
@@ -2750,63 +2551,6 @@ impl ViewerApp {
         )
     }
 
-    fn processing_panel_action_at(&self, point: PointF) -> Option<ProcessingPanelAction> {
-        if !self.processing_ui.visible {
-            return None;
-        }
-        if let (Some(option), Some(dropdown)) = (
-            self.processing_ui.open_option,
-            self.processing_dropdown_rect(),
-        ) && dropdown.contains(point)
-        {
-            let choice = ((point.y - dropdown.y - 4.0) / 26.0).floor() as usize;
-            if choice < self.processing_option_choices(option).len() {
-                return Some(ProcessingPanelAction::Choice { option, choice });
-            }
-        }
-        let panel = self.processing_panel_rect()?;
-        if !panel.contains(point) {
-            return None;
-        }
-        let tab_y = panel.y + 40.0;
-        if point.y >= tab_y && point.y < tab_y + 30.0 {
-            let tab_width = (panel.width - 28.0) / 3.0;
-            let index = ((point.x - panel.x - 14.0) / tab_width).floor() as usize;
-            return ProcessingTab::ALL
-                .get(index.min(ProcessingTab::ALL.len() - 1))
-                .copied()
-                .map(ProcessingPanelAction::Tab);
-        }
-        let options_y = panel.y + 80.0;
-        let row_count = self.processing_option_rows().len();
-        if point.y >= options_y && point.y < options_y + row_count as f64 * 26.0 {
-            let row = (((point.y - options_y) / 26.0).floor() as usize).min(row_count - 1);
-            if self.processing_ui.tab == ProcessingTab::Page && row == LAYOUT_ROW {
-                let value_x = panel.x + panel.width * 0.5;
-                if point.x >= value_x {
-                    let field_width = panel.width * 0.5 - 20.0;
-                    let segment_pitch = (field_width - 8.0).max(3.0) / 3.0 + 4.0;
-                    let segment = (((point.x - value_x) / segment_pitch).floor() as usize).min(2);
-                    return Some(ProcessingPanelAction::Choice {
-                        option: LAYOUT_ROW,
-                        choice: segment,
-                    });
-                }
-            }
-            return Some(ProcessingPanelAction::Option(row));
-        }
-        let y = panel.y + panel.height - 58.0;
-        if point.y < y || point.y > y + 34.0 {
-            return None;
-        }
-        let relative_x = point.x - panel.x;
-        if relative_x < panel.width * 0.58 {
-            Some(ProcessingPanelAction::Run)
-        } else {
-            Some(ProcessingPanelAction::ToggleProfile)
-        }
-    }
-
     fn options_color_at(&self, point: PointF) -> Option<ColorMode> {
         if !self.options_visible {
             return None;
@@ -2824,16 +2568,6 @@ impl ViewerApp {
             4 => Some(ColorMode::SanzoSea),
             _ => None,
         }
-    }
-
-    fn processing_resize_handle_contains(&self, point: PointF) -> bool {
-        self.processing_ui.visible
-            && self.processing_panel_rect().is_some_and(|panel| {
-                point.x >= panel.right() - 20.0
-                    && point.x <= panel.right()
-                    && point.y >= panel.bottom() - 20.0
-                    && point.y <= panel.bottom()
-            })
     }
 
     fn outline_window_start(&self) -> usize {
@@ -2931,9 +2665,6 @@ impl ViewerApp {
             && matches!(key, Key::Character(character) if character.as_str().eq_ignore_ascii_case("f"))
         {
             self.set_search_open(true);
-            return;
-        }
-        if self.handle_resolution_key(key) {
             return;
         }
         // Some Linux keyboard stacks report PageUp/PageDown inconsistently as
@@ -3272,657 +3003,11 @@ impl ViewerApp {
         let Some(path) = dialog.pick_file() else {
             return;
         };
-        self.processing_ui.result_visible = false;
-        self.processing_ui.result_ready = false;
-        self.processing_ui.viewing_new = false;
-        self.processing_ui.output = None;
-        self.processing_ui.original = Some(path.clone());
         self.open_document(&path);
-    }
-
-    fn toggle_processing_workspace(&mut self) {
-        self.processing_ui.visible = !self.processing_ui.visible;
-        if !self.processing_ui.visible {
-            self.processing_ui.open_option = None;
-            self.commit_resolution_edit();
-        }
-        self.damage.mark_full();
-        self.request_redraw();
     }
 
     fn toggle_options_popup(&mut self) {
         self.options_visible = !self.options_visible;
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn switch_processing_result(&mut self, show_new: bool) {
-        if show_new && !self.processing_ui.result_ready {
-            return;
-        }
-        let path = if show_new {
-            self.processing_ui.output.clone()
-        } else {
-            self.processing_ui.original.clone()
-        };
-        let Some(path) = path else {
-            return;
-        };
-        if path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
-        {
-            self.open_document(&path);
-            self.processing_ui.viewing_new = show_new;
-        } else if show_new && let Err(error) = open::that(&path) {
-            self.processing_ui.title = "Could not open processed output".to_owned();
-            self.processing_ui.detail = error.to_string();
-        }
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn processing_option_rows(&self) -> Vec<(String, String)> {
-        let options = &self.processing_ui.options;
-        let enabled = |value: bool| if value { "On" } else { "Off" }.to_owned();
-        match self.processing_ui.tab {
-            ProcessingTab::Output => vec![
-                (
-                    "Container".to_owned(),
-                    options.output_format.label().to_owned(),
-                ),
-                (
-                    "Text compression".to_owned(),
-                    options.compression.label().to_owned(),
-                ),
-                ("Cover".to_owned(), options.cover.label().to_owned()),
-                (
-                    "Image regions".to_owned(),
-                    options.image_processing.label().to_owned(),
-                ),
-                (
-                    "EPUB sidecar".to_owned(),
-                    enabled(options.make_epub_sidecar),
-                ),
-                (
-                    "JPEG compatibility".to_owned(),
-                    enabled(options.jpeg_compat),
-                ),
-                ("High quality".to_owned(), enabled(options.high_quality)),
-            ],
-            ProcessingTab::Recognition => vec![
-                (
-                    "Layout analysis".to_owned(),
-                    enabled(options.layout_analysis),
-                ),
-                (
-                    "Exclude current page".to_owned(),
-                    self.status.current_page.map_or_else(
-                        || "No page".to_owned(),
-                        |page| {
-                            if options.layout_exclusion_pages.contains(&page.0) {
-                                "Excluded".to_owned()
-                            } else {
-                                "Included".to_owned()
-                            }
-                        },
-                    ),
-                ),
-                ("OCR text layer".to_owned(), enabled(options.use_ocr)),
-                (
-                    "OCR quality".to_owned(),
-                    options.ocr_mode.label().to_owned(),
-                ),
-                (
-                    "JBIG2 halftone".to_owned(),
-                    enabled(options.use_jbig2_halftone),
-                ),
-                ("Grayscale / MRC".to_owned(), enabled(options.grayscale)),
-                ("Invert input".to_owned(), enabled(options.invert)),
-            ],
-            ProcessingTab::Page => vec![
-                ("Scope".to_owned(), self.processing_ui.scope.label()),
-                (
-                    "Page layout".to_owned(),
-                    if options.reflow {
-                        "Reflow".to_owned()
-                    } else {
-                        match options.margin_mode {
-                            MarginMode::None => "Original".to_owned(),
-                            MarginMode::Center => "Center".to_owned(),
-                            MarginMode::Crop => "Crop".to_owned(),
-                        }
-                    },
-                ),
-                ("Binarization".to_owned(), options.binarization.label()),
-                (
-                    "Adaptive strength".to_owned(),
-                    match options.binarization {
-                        Binarization::Adaptive { sauvola_k } => format!("k={sauvola_k:.2}"),
-                        _ => "Select adaptive first".to_owned(),
-                    },
-                ),
-                (
-                    "Threshold".to_owned(),
-                    match options.binarization {
-                        Binarization::Threshold { value } => value.to_string(),
-                        _ => "Select threshold first".to_owned(),
-                    },
-                ),
-                (
-                    "Target resolution".to_owned(),
-                    if self.processing_ui.resolution_editing {
-                        format!("{}| px high", self.processing_ui.resolution_buffer)
-                    } else {
-                        options.target_width.map_or_else(
-                            || format!("{} px high", options.target_height),
-                            |width| format!("{width} × {}", options.target_height),
-                        )
-                    },
-                ),
-                (
-                    "Preset".to_owned(),
-                    self.processing_ui.profile.label().to_owned(),
-                ),
-            ],
-        }
-    }
-
-    fn processing_option_choices(&self, index: usize) -> Vec<String> {
-        let boolean = || vec!["Off".to_owned(), "On".to_owned()];
-        match (self.processing_ui.tab, index) {
-            (ProcessingTab::Output, 0) => ["PDF", "DjVu", "EPUB"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Output, 1) => {
-                ["CCITT4", "JBIG2"].into_iter().map(str::to_owned).collect()
-            }
-            (ProcessingTab::Output, 2) => ["Preserve", "JPEG", "JPEG 2000", "Remove"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Output, 3) => ["Original", "Dithered"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Output, 4..=6) => boolean(),
-            (ProcessingTab::Recognition, 0 | 2 | 4..=6) => boolean(),
-            (ProcessingTab::Recognition, 1) => ["Included", "Excluded"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Recognition, 3) => {
-                ["Fast", "Best"].into_iter().map(str::to_owned).collect()
-            }
-            (ProcessingTab::Page, 0) => {
-                let mut choices = vec!["Whole document".to_owned()];
-                if let Some(page) = self.status.current_page {
-                    choices.push(format!("Current page ({})", page.0 + 1));
-                }
-                choices
-            }
-            (ProcessingTab::Page, LAYOUT_ROW) => {
-                LAYOUT_SEGMENTS.into_iter().map(str::to_owned).collect()
-            }
-            (ProcessingTab::Page, 2) => ["Adaptive", "Threshold", "Heavy"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Page, 3) => ["k=0.05", "k=0.10", "k=0.15", "k=0.20", "k=0.25"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Page, 4) => ["120", "160", "180", "200", "220"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            (ProcessingTab::Page, 6) => ["Reading", "Bilevel"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect(),
-            _ => Vec::new(),
-        }
-    }
-
-    fn processing_dropdown_rect(&self) -> Option<RectF> {
-        let option = self.processing_ui.open_option?;
-        let choice_count = self.processing_option_choices(option).len();
-        if choice_count == 0 {
-            return None;
-        }
-        let panel = self.processing_panel_rect()?;
-        let width = (panel.width * 0.5 - 20.0).max(150.0);
-        let height = 8.0 + choice_count as f64 * 26.0;
-        let row_top = panel.y + 80.0 + option as f64 * 26.0;
-        let below = row_top + 24.0;
-        let action_top = panel.bottom() - 64.0;
-        let y = if below + height <= action_top {
-            below
-        } else {
-            (row_top - height).max(panel.y + 74.0)
-        };
-        Some(RectF {
-            x: panel.x + panel.width * 0.5,
-            y,
-            width,
-            height,
-        })
-    }
-
-    fn processing_choice_is_selected(&self, option: usize, choice: &str) -> bool {
-        if self.processing_ui.tab == ProcessingTab::Page && option == LAYOUT_ROW {
-            let options = &self.processing_ui.options;
-            return match choice {
-                "Crop" => !options.reflow && options.margin_mode == MarginMode::Crop,
-                "Center" => !options.reflow && options.margin_mode == MarginMode::Center,
-                "Reflow" => options.reflow,
-                _ => false,
-            };
-        }
-        let current_value = self
-            .processing_option_rows()
-            .get(option)
-            .map(|(_, value)| value.clone())
-            .unwrap_or_default();
-        current_value == choice
-            || current_value.starts_with(choice)
-            || (choice == "Whole document"
-                && matches!(self.processing_ui.scope, ProcessingScope::Document))
-            || (choice.starts_with("Current page")
-                && matches!(self.processing_ui.scope, ProcessingScope::Pages(_)))
-    }
-
-    fn begin_resolution_edit(&mut self) {
-        self.set_search_open(false);
-        self.processing_ui.open_option = None;
-        self.processing_ui.resolution_buffer = self.processing_ui.options.target_height.to_string();
-        self.processing_ui.resolution_editing = true;
-        if let Some(window) = &self.window {
-            window.set_ime_allowed(true);
-        }
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn commit_resolution_edit(&mut self) {
-        if !self.processing_ui.resolution_editing {
-            return;
-        }
-        if let Ok(value) = self.processing_ui.resolution_buffer.parse::<u32>()
-            && value > 0
-        {
-            self.processing_ui.options.target_height = value;
-            self.processing_ui.options.target_width = None;
-        }
-        self.processing_ui.resolution_buffer = self.processing_ui.options.target_height.to_string();
-        self.processing_ui.resolution_editing = false;
-        if let Some(window) = &self.window {
-            window.set_ime_allowed(self.search_ui.open);
-        }
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn handle_resolution_key(&mut self, key: &Key) -> bool {
-        if !self.processing_ui.resolution_editing {
-            return false;
-        }
-        match key {
-            Key::Named(NamedKey::Enter) => self.commit_resolution_edit(),
-            Key::Named(NamedKey::Escape) => {
-                self.processing_ui.resolution_buffer =
-                    self.processing_ui.options.target_height.to_string();
-                self.commit_resolution_edit();
-            }
-            Key::Named(NamedKey::Backspace) => {
-                self.processing_ui.resolution_buffer.pop();
-            }
-            Key::Character(character)
-                if self.input.modifiers.control_key()
-                    && character.as_str().eq_ignore_ascii_case("v") =>
-            {
-                if let Ok(text) = self.clipboard.get() {
-                    self.insert_resolution_text(&text);
-                }
-            }
-            Key::Character(character) if !self.input.modifiers.control_key() => {
-                self.insert_resolution_text(character.as_str());
-            }
-            _ => return false,
-        }
-        self.damage.mark_full();
-        self.request_redraw();
-        true
-    }
-
-    fn insert_resolution_text(&mut self, text: &str) {
-        for character in text.chars().filter(char::is_ascii_digit) {
-            if self.processing_ui.resolution_buffer.len() < 6 {
-                self.processing_ui.resolution_buffer.push(character);
-            }
-        }
-    }
-
-    fn select_processing_option_choice(&mut self, index: usize, choice: usize) {
-        let enabled = choice == 1;
-        match (self.processing_ui.tab, index) {
-            (ProcessingTab::Output, 0) => {
-                self.processing_ui.options.output_format = match choice {
-                    1 => OutputFormat::Djvu,
-                    2 => OutputFormat::Epub,
-                    _ => OutputFormat::Pdf,
-                };
-            }
-            (ProcessingTab::Output, 1) => {
-                self.processing_ui.options.compression = if choice == 0 {
-                    TextCompression::Ccitt4
-                } else {
-                    TextCompression::Jbig2
-                };
-            }
-            (ProcessingTab::Output, 2) => {
-                self.processing_ui.options.cover = match choice {
-                    1 => CoverMode::Jpeg,
-                    2 => CoverMode::Jpeg2000,
-                    3 => CoverMode::None,
-                    _ => CoverMode::Preserve,
-                };
-            }
-            (ProcessingTab::Output, 3) => {
-                self.processing_ui.options.image_processing = if choice == 0 {
-                    ImageProcessing::Original
-                } else {
-                    ImageProcessing::Dithered
-                };
-            }
-            (ProcessingTab::Output, 4) => {
-                self.processing_ui.options.make_epub_sidecar = enabled;
-            }
-            (ProcessingTab::Output, 5) => self.processing_ui.options.jpeg_compat = enabled,
-            (ProcessingTab::Output, 6) => self.processing_ui.options.high_quality = enabled,
-            (ProcessingTab::Recognition, 0) => {
-                self.processing_ui.options.layout_analysis = enabled;
-            }
-            (ProcessingTab::Recognition, 1) => {
-                if let Some(page) = self.status.current_page {
-                    if enabled {
-                        self.processing_ui
-                            .options
-                            .layout_exclusion_pages
-                            .insert(page.0);
-                    } else {
-                        self.processing_ui
-                            .options
-                            .layout_exclusion_pages
-                            .remove(&page.0);
-                    }
-                }
-            }
-            (ProcessingTab::Recognition, 2) => self.processing_ui.options.use_ocr = enabled,
-            (ProcessingTab::Recognition, 3) => {
-                self.processing_ui.options.ocr_mode = if choice == 0 {
-                    OcrMode::Fast
-                } else {
-                    OcrMode::Best
-                };
-            }
-            (ProcessingTab::Recognition, 4) => {
-                self.processing_ui.options.use_jbig2_halftone = enabled;
-            }
-            (ProcessingTab::Recognition, 5) => self.processing_ui.options.grayscale = enabled,
-            (ProcessingTab::Recognition, 6) => self.processing_ui.options.invert = enabled,
-            (ProcessingTab::Page, 0) => {
-                self.processing_ui.scope = if choice == 1 {
-                    self.status
-                        .current_page
-                        .map_or(ProcessingScope::Document, |page| {
-                            ProcessingScope::Pages([page.0].into_iter().collect())
-                        })
-                } else {
-                    ProcessingScope::Document
-                };
-            }
-            (ProcessingTab::Page, LAYOUT_ROW) => {
-                // Crop, Center and Reflow are one mutually exclusive trio:
-                // picking one clears the other two, picking the active one
-                // returns the page to its original layout. Crop welds the
-                // free-aspect flag on, exactly like the Freya GUI did.
-                let options = &mut self.processing_ui.options;
-                match choice {
-                    0 => {
-                        if !options.reflow && options.margin_mode == MarginMode::Crop {
-                            options.margin_mode = MarginMode::None;
-                            options.crop_free_aspect = false;
-                        } else {
-                            options.margin_mode = MarginMode::Crop;
-                            options.crop_free_aspect = true;
-                            options.reflow = false;
-                        }
-                    }
-                    1 => {
-                        if !options.reflow && options.margin_mode == MarginMode::Center {
-                            options.margin_mode = MarginMode::None;
-                        } else {
-                            options.margin_mode = MarginMode::Center;
-                            options.crop_free_aspect = false;
-                            options.reflow = false;
-                        }
-                    }
-                    _ => {
-                        if options.reflow {
-                            options.reflow = false;
-                        } else {
-                            options.reflow = true;
-                            options.margin_mode = MarginMode::None;
-                            options.crop_free_aspect = false;
-                        }
-                    }
-                }
-            }
-            (ProcessingTab::Page, 2) => {
-                self.processing_ui.options.binarization = match choice {
-                    1 => Binarization::Threshold { value: 180 },
-                    2 => Binarization::Heavy,
-                    _ => Binarization::Adaptive { sauvola_k: 0.05 },
-                };
-            }
-            (ProcessingTab::Page, 3) => {
-                let values = [0.05, 0.10, 0.15, 0.20, 0.25];
-                self.processing_ui.options.binarization = Binarization::Adaptive {
-                    sauvola_k: values.get(choice).copied().unwrap_or(0.05),
-                };
-            }
-            (ProcessingTab::Page, 4) => {
-                let values = [120, 160, 180, 200, 220];
-                self.processing_ui.options.binarization = Binarization::Threshold {
-                    value: values.get(choice).copied().unwrap_or(180),
-                };
-            }
-            (ProcessingTab::Page, 6) => {
-                self.processing_ui.profile = if choice == 0 {
-                    ProcessingProfile::Reading
-                } else {
-                    ProcessingProfile::Bilevel
-                };
-                self.processing_ui
-                    .options
-                    .apply_profile(self.processing_ui.profile);
-            }
-            _ => {}
-        }
-        self.processing_ui.options.normalize_dependencies();
-        self.processing_ui.open_option = None;
-        self.processing_ui.title = "Processing options updated".to_owned();
-        let rows = self.processing_option_rows();
-        self.processing_ui.detail = rows
-            .get(index.min(rows.len().saturating_sub(1)))
-            .map(|(_, value)| value.clone())
-            .unwrap_or_default();
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn activate_processing_option(&mut self, index: usize) {
-        if self.processing_ui.tab == ProcessingTab::Page && index == RESOLUTION_ROW {
-            self.begin_resolution_edit();
-            return;
-        }
-        self.commit_resolution_edit();
-        if self.processing_ui.tab == ProcessingTab::Page && index == LAYOUT_ROW {
-            // The layout trio renders as three inline segments; clicks are
-            // dispatched per segment, so the row itself has no dropdown.
-            return;
-        }
-        let choices = self.processing_option_choices(index);
-        if choices.len() == 2 {
-            let next = if self.processing_choice_is_selected(index, &choices[0]) {
-                1
-            } else {
-                0
-            };
-            self.select_processing_option_choice(index, next);
-            return;
-        }
-        self.processing_ui.open_option =
-            (choices.len() > 2 && self.processing_ui.open_option != Some(index)).then_some(index);
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn toggle_processing_profile(&mut self) {
-        self.processing_ui.profile = match self.processing_ui.profile {
-            ProcessingProfile::Reading => ProcessingProfile::Bilevel,
-            ProcessingProfile::Bilevel => ProcessingProfile::Reading,
-        };
-        self.processing_ui
-            .options
-            .apply_profile(self.processing_ui.profile);
-        self.processing_ui.visible = true;
-        self.processing_ui.title = format!("{} profile", self.processing_ui.profile.label());
-        self.processing_ui.detail = match self.processing_ui.profile {
-            ProcessingProfile::Reading => "Balanced raster PDF for comfortable reading.".to_owned(),
-            ProcessingProfile::Bilevel => {
-                "High-compression text-first output for clean scans.".to_owned()
-            }
-        };
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn start_processing(&mut self) {
-        if self.processing_ui.running {
-            if let Some(control) = &self.processing_control {
-                control.cancel();
-                self.processing_ui.title = "Cancelling processing…".to_owned();
-                self.processing_ui.detail =
-                    "The current page is allowed to stop safely.".to_owned();
-                self.damage.mark_full();
-                self.request_redraw();
-            }
-            return;
-        }
-        self.commit_resolution_edit();
-        let Some(input) = self.engine.source_path().map(std::path::Path::to_path_buf) else {
-            self.processing_ui.visible = true;
-            self.processing_ui.title = "Open a PDF first".to_owned();
-            self.processing_ui.detail =
-                "Synthetic and empty documents cannot be processed.".to_owned();
-            self.damage.mark_full();
-            self.request_redraw();
-            return;
-        };
-        let Some(proxy) = self.processing_proxy.clone() else {
-            self.processing_ui.visible = true;
-            self.processing_ui.title = "Processing unavailable".to_owned();
-            self.processing_ui.detail =
-                "The desktop event loop has not been initialized.".to_owned();
-            self.damage.mark_full();
-            self.request_redraw();
-            return;
-        };
-        let output =
-            default_processing_output(&input, self.processing_ui.options.output_format.extension());
-        let request = ProcessingRequest {
-            input: input.clone(),
-            output,
-            profile: self.processing_ui.profile,
-            scope: self.processing_ui.scope.clone(),
-            options: self.processing_ui.options.clone(),
-        };
-        self.processing_ui.visible = true;
-        self.processing_ui.original = Some(input);
-        self.processing_ui.output = Some(request.output.clone());
-        self.processing_ui.result_visible = true;
-        self.processing_ui.result_ready = false;
-        self.processing_ui.viewing_new = false;
-        self.processing_ui.title = "Starting processing…".to_owned();
-        self.processing_ui.detail =
-            format!("{} · {}", request.scope.label(), request.profile.label());
-        match processing::start(request, proxy) {
-            Ok(control) => {
-                self.processing_control = Some(control);
-                self.processing_ui.running = true;
-            }
-            Err(error) => {
-                self.processing_ui.title = "Could not start processing".to_owned();
-                self.processing_ui.detail = error;
-            }
-        }
-        self.damage.mark_full();
-        self.request_redraw();
-    }
-
-    fn apply_processing_update(&mut self, update: ProcessingUpdate) {
-        self.processing_ui.visible = true;
-        let mut completed_output = None;
-        match update {
-            ProcessingUpdate::Started { output } => {
-                self.processing_ui.running = true;
-                self.processing_ui.output = Some(output);
-                self.processing_ui.result_visible = true;
-                self.processing_ui.result_ready = false;
-                self.processing_ui.title = "Processing".to_owned();
-            }
-            ProcessingUpdate::Progress { title, detail } => {
-                self.processing_ui.title = title;
-                self.processing_ui.detail = detail;
-            }
-            ProcessingUpdate::Completed { message, output } => {
-                self.processing_ui.running = false;
-                self.processing_control = None;
-                self.processing_ui.output = Some(output);
-                self.processing_ui.result_visible = true;
-                self.processing_ui.result_ready = true;
-                self.processing_ui.title = "Processing complete".to_owned();
-                self.processing_ui.detail = message;
-                completed_output = self.processing_ui.output.clone();
-            }
-            ProcessingUpdate::Cancelled => {
-                self.processing_ui.running = false;
-                self.processing_control = None;
-                self.processing_ui.title = "Processing cancelled".to_owned();
-                self.processing_ui.detail = "No further pages will be written.".to_owned();
-                self.processing_ui.result_ready = false;
-            }
-            ProcessingUpdate::Failed { message } => {
-                self.processing_ui.running = false;
-                self.processing_control = None;
-                self.processing_ui.title = "Processing failed".to_owned();
-                self.processing_ui.detail = message;
-                self.processing_ui.result_ready = false;
-            }
-        }
-        if let Some(output) = completed_output
-            && output
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
-        {
-            self.open_document(&output);
-            self.processing_ui.viewing_new = true;
-        }
         self.damage.mark_full();
         self.request_redraw();
     }
@@ -4109,10 +3194,7 @@ impl ViewerApp {
         self.update_scroll_extents();
         if let Some(window) = &self.window {
             window.set_ime_allowed(false);
-            window.set_title(&format!(
-                "Liminaldoc Reader — {}",
-                self.engine.descriptor().display_name
-            ));
+            window.set_title(&window_title(&self.engine.descriptor().display_name));
         }
         self.bump_generation();
         Ok(())
@@ -4552,56 +3634,6 @@ impl ViewerApp {
             },
         });
 
-        let processing_base = if self.processing_ui.running {
-            self.theme.colors.error
-        } else if self.processing_ui.visible {
-            self.theme.colors.selection
-        } else {
-            base_control
-        };
-        let processing_color = self.control_color(
-            processing_base,
-            HoverControl::Toolbar(ToolbarAction::ToggleProcessing),
-        );
-        let process_surface = self.ui_text.render(
-            [
-                0x4c45_4745,
-                11,
-                self.processing_ui.running as u64,
-                self.processing_ui.visible as u64,
-            ],
-            PROCESS_GROUP_WIDTH as u32,
-            toolbar_height.min(256),
-            self.theme.colors.chrome,
-            &button_paint(
-                4,
-                5,
-                PROCESS_GROUP_WIDTH as u32 - 10,
-                toolbar_height,
-                processing_color,
-            ),
-            &[centered_button_text(
-                if self.processing_ui.running {
-                    "Processing…"
-                } else {
-                    "Process"
-                },
-                button_bounds(4, 5, PROCESS_GROUP_WIDTH as u32 - 10, toolbar_height),
-                12.5,
-                contrast_text_color(processing_color),
-                self.processing_ui.visible || self.processing_ui.running,
-            )],
-        );
-        surfaces.push(ChromeSurfacePlacement {
-            surface: process_surface,
-            destination: RectF {
-                x: PROCESS_GROUP_X,
-                y: 0.0,
-                width: PROCESS_GROUP_WIDTH,
-                height: f64::from(toolbar_height.min(256)),
-            },
-        });
-
         let appearance_base = if self.options_visible {
             self.theme.colors.selection
         } else {
@@ -4802,14 +3834,9 @@ impl ViewerApp {
         if self.sidebar_visible {
             self.render_outline_surfaces(&mut surfaces);
         }
-        if self.processing_ui.visible {
-            self.render_processing_surface(&mut surfaces);
-            self.render_processing_dropdown_surface(&mut surfaces);
-        }
         if self.options_visible {
             self.render_options_surface(&mut surfaces);
         }
-        self.render_result_switch(&mut surfaces);
 
         let status_height = self.app_layout.status.height.round().max(1.0) as u32;
         let mut status_text = format!(
@@ -4828,9 +3855,6 @@ impl ViewerApp {
                 * 100.0)
                 .floor();
             status_text.push_str(&format!("   ·   Indexing {percent:.0}%"));
-        }
-        if self.processing_ui.running {
-            status_text.push_str(&format!("   ·   {}", self.processing_ui.detail));
         }
         if let Some(notice) = &self.clipboard_notice {
             status_text.push_str(&format!("   ·   {notice}"));
@@ -5157,504 +4181,6 @@ impl ViewerApp {
         });
     }
 
-    fn render_result_switch(&mut self, output: &mut Vec<ChromeSurfacePlacement>) {
-        let Some(destination) = self.result_switch_rect() else {
-            return;
-        };
-        let width = destination.width.round() as u32;
-        let height = destination.height.round() as u32;
-        let half = width.saturating_sub(12) / 2;
-        let control = self.theme.colors.scrollbar_thumb;
-        let original_base = if self.processing_ui.viewing_new {
-            control
-        } else {
-            self.theme.colors.selection
-        };
-        let new_base = if self.processing_ui.viewing_new
-            || self.processing_ui.running
-            || self.processing_ui.result_ready
-        {
-            self.theme.colors.selection
-        } else {
-            control
-        };
-        let original_color = self.control_color(original_base, HoverControl::Result(false));
-        let new_color = self.control_color(new_base, HoverControl::Result(true));
-        let new_label = if self.processing_ui.running {
-            "New · processing"
-        } else if self.processing_ui.result_ready && !self.processing_ui.viewing_new {
-            "New · ready"
-        } else {
-            "New"
-        };
-        let surface = self.ui_text.render(
-            [
-                0x4c45_4745,
-                20,
-                self.processing_ui.running as u64,
-                (self.processing_ui.result_ready as u64) << 1
-                    | self.processing_ui.viewing_new as u64,
-            ],
-            width,
-            height,
-            self.theme.colors.canvas,
-            &button_paint(4, 5, half, height, original_color)
-                .into_iter()
-                .chain(button_paint(8 + half as i32, 5, half, height, new_color))
-                .collect::<Vec<_>>(),
-            &[
-                centered_button_text(
-                    "Original",
-                    button_bounds(4, 5, half, height),
-                    12.0,
-                    contrast_text_color(original_color),
-                    !self.processing_ui.viewing_new,
-                ),
-                centered_button_text(
-                    new_label,
-                    button_bounds(8 + half as i32, 5, half, height),
-                    12.0,
-                    contrast_text_color(new_color),
-                    self.processing_ui.viewing_new || self.processing_ui.running,
-                ),
-            ],
-        );
-        output.push(ChromeSurfacePlacement {
-            surface,
-            destination,
-        });
-    }
-
-    fn render_processing_surface(&mut self, output: &mut Vec<ChromeSurfacePlacement>) {
-        let Some(panel) = self.processing_panel_rect() else {
-            return;
-        };
-        let width = panel.width.round() as u32;
-        let height = panel.height.round() as u32;
-        let rows = self.processing_option_rows();
-        let base_control = self.theme.colors.scrollbar_thumb;
-        let mut rectangles = vec![
-            RectPaint {
-                rect: RectI {
-                    x: 5,
-                    y: 5,
-                    width: width.saturating_sub(5),
-                    height: height.saturating_sub(5),
-                },
-                color: 0x0018_1818,
-            },
-            RectPaint {
-                rect: RectI {
-                    x: 0,
-                    y: 0,
-                    width: width.saturating_sub(6),
-                    height: height.saturating_sub(6),
-                },
-                color: self.theme.colors.chrome,
-            },
-            RectPaint {
-                rect: RectI {
-                    x: 0,
-                    y: 0,
-                    width: width.saturating_sub(6),
-                    height: 34,
-                },
-                color: self.theme.colors.selection,
-            },
-        ];
-        let tab_width = width.saturating_sub(28) / 3;
-        for (index, tab) in ProcessingTab::ALL.into_iter().enumerate() {
-            let base = if tab == self.processing_ui.tab {
-                self.theme.colors.selection
-            } else {
-                base_control
-            };
-            let color = self.control_color(
-                base,
-                HoverControl::Processing(ProcessingPanelAction::Tab(tab)),
-            );
-            rectangles.extend(button_paint(
-                14 + index as i32 * tab_width as i32,
-                40,
-                tab_width.saturating_sub(4),
-                36,
-                color,
-            ));
-        }
-        for row in 0..rows.len().min(8) {
-            let y = 80 + row as i32 * 26;
-            let color = if row % 2 == 0 {
-                self.theme.colors.canvas
-            } else {
-                self.theme.colors.chrome
-            };
-            rectangles.push(RectPaint {
-                rect: RectI {
-                    x: 14,
-                    y,
-                    width: width.saturating_sub(34),
-                    height: 23,
-                },
-                color,
-            });
-            let field_width = width.saturating_sub(width / 2 + 20);
-            let is_resolution =
-                self.processing_ui.tab == ProcessingTab::Page && row == RESOLUTION_ROW;
-            let is_layout = self.processing_ui.tab == ProcessingTab::Page && row == LAYOUT_ROW;
-            if is_layout {
-                let segment_width = field_width.saturating_sub(8) / 3;
-                for (segment, label) in LAYOUT_SEGMENTS.iter().enumerate() {
-                    let x = (width / 2) as i32 + segment as i32 * (segment_width as i32 + 4);
-                    let base = if self.processing_choice_is_selected(row, label) {
-                        self.theme.colors.selection
-                    } else {
-                        base_control
-                    };
-                    let color = self.control_color(
-                        base,
-                        HoverControl::Processing(ProcessingPanelAction::Choice {
-                            option: row,
-                            choice: segment,
-                        }),
-                    );
-                    rectangles.extend(button_paint(x, y, segment_width, 33, color));
-                }
-            } else if is_resolution {
-                let field_color = self.control_color(
-                    if self.processing_ui.resolution_editing {
-                        self.theme.colors.paper
-                    } else {
-                        self.theme.colors.chrome
-                    },
-                    HoverControl::Processing(ProcessingPanelAction::Option(row)),
-                );
-                rectangles.push(RectPaint {
-                    rect: RectI {
-                        x: (width / 2) as i32,
-                        y: y + 2,
-                        width: field_width,
-                        height: 19,
-                    },
-                    color: field_color,
-                });
-                rectangles.push(RectPaint {
-                    rect: RectI {
-                        x: (width / 2) as i32,
-                        y: y + 2,
-                        width: field_width,
-                        height: 1,
-                    },
-                    color: if self.processing_ui.resolution_editing {
-                        self.theme.colors.selection
-                    } else {
-                        self.theme.colors.page_border
-                    },
-                });
-            } else {
-                let base = if self.processing_ui.open_option == Some(row) {
-                    self.theme.colors.selection
-                } else {
-                    base_control
-                };
-                let color = self.control_color(
-                    base,
-                    HoverControl::Processing(ProcessingPanelAction::Option(row)),
-                );
-                rectangles.extend(button_paint((width / 2) as i32, y, field_width, 33, color));
-            }
-        }
-        let action_y = height.saturating_sub(58) as i32;
-        let run_width = ((width.saturating_sub(34)) as f64 * 0.58) as u32;
-        let run_base = if self.processing_ui.running {
-            self.theme.colors.error
-        } else {
-            self.theme.colors.selection
-        };
-        let run_color = self.control_color(
-            run_base,
-            HoverControl::Processing(ProcessingPanelAction::Run),
-        );
-        let preset_color = self.control_color(
-            base_control,
-            HoverControl::Processing(ProcessingPanelAction::ToggleProfile),
-        );
-        rectangles.extend(button_paint(14, action_y, run_width, 44, run_color));
-        rectangles.extend(button_paint(
-            18 + run_width as i32,
-            action_y,
-            width.saturating_sub(run_width + 38),
-            44,
-            preset_color,
-        ));
-
-        let mut text = vec![TextPaint {
-            text: if self.processing_ui.running {
-                format!("Processing · {}", self.processing_ui.detail)
-            } else {
-                "Document processing".to_owned()
-            },
-            x: 14,
-            y: 10,
-            max_width: width.saturating_sub(28),
-            size: 15.0,
-            color: contrast_text_color(self.theme.colors.selection),
-            bold: true,
-            centered: false,
-        }];
-        for (index, tab) in ProcessingTab::ALL.into_iter().enumerate() {
-            let base = if tab == self.processing_ui.tab {
-                self.theme.colors.selection
-            } else {
-                base_control
-            };
-            let color = self.control_color(
-                base,
-                HoverControl::Processing(ProcessingPanelAction::Tab(tab)),
-            );
-            text.push(centered_button_text(
-                tab.label(),
-                button_bounds(
-                    14 + index as i32 * tab_width as i32,
-                    40,
-                    tab_width.saturating_sub(4),
-                    36,
-                ),
-                11.0,
-                contrast_text_color(color),
-                tab == self.processing_ui.tab,
-            ));
-        }
-        for (row, (label, value)) in rows.into_iter().take(8).enumerate() {
-            let y = 86 + row as i32 * 26;
-            text.push(TextPaint {
-                text: label,
-                x: 22,
-                y,
-                max_width: width / 2 - 30,
-                size: 12.0,
-                color: self.theme.colors.text,
-                bold: false,
-                centered: false,
-            });
-            let is_resolution =
-                self.processing_ui.tab == ProcessingTab::Page && row == RESOLUTION_ROW;
-            let is_layout = self.processing_ui.tab == ProcessingTab::Page && row == LAYOUT_ROW;
-            if is_layout {
-                let field_width = width.saturating_sub(width / 2 + 20);
-                let segment_width = field_width.saturating_sub(8) / 3;
-                for (segment, label) in LAYOUT_SEGMENTS.iter().enumerate() {
-                    let x = (width / 2) as i32 + segment as i32 * (segment_width as i32 + 4);
-                    let selected = self.processing_choice_is_selected(row, label);
-                    let base = if selected {
-                        self.theme.colors.selection
-                    } else {
-                        base_control
-                    };
-                    let color = self.control_color(
-                        base,
-                        HoverControl::Processing(ProcessingPanelAction::Choice {
-                            option: row,
-                            choice: segment,
-                        }),
-                    );
-                    text.push(centered_button_text(
-                        *label,
-                        button_bounds(x, y - 6, segment_width, 33),
-                        11.0,
-                        contrast_text_color(color),
-                        selected,
-                    ));
-                }
-                continue;
-            }
-            let choices = self.processing_option_choices(row);
-            let base = if self.processing_ui.open_option == Some(row) {
-                self.theme.colors.selection
-            } else {
-                base_control
-            };
-            let color = self.control_color(
-                base,
-                HoverControl::Processing(ProcessingPanelAction::Option(row)),
-            );
-            text.push(centered_button_text(
-                if is_resolution {
-                    value
-                } else if choices.len() == 2 {
-                    format!("{value}  ↔")
-                } else {
-                    format!("{value}  ▾")
-                },
-                button_bounds(
-                    (width / 2) as i32,
-                    y - 6,
-                    width.saturating_sub(width / 2 + 20),
-                    33,
-                ),
-                11.0,
-                if is_resolution {
-                    self.theme.colors.text
-                } else {
-                    contrast_text_color(color)
-                },
-                true,
-            ));
-        }
-        text.extend([
-            centered_button_text(
-                if self.processing_ui.running {
-                    "Stop safely"
-                } else {
-                    "Run with these options"
-                },
-                button_bounds(14, action_y, run_width, 44),
-                12.0,
-                contrast_text_color(run_color),
-                true,
-            ),
-            centered_button_text(
-                format!("Preset: {}", self.processing_ui.profile.label()),
-                button_bounds(
-                    18 + run_width as i32,
-                    action_y,
-                    width.saturating_sub(run_width + 38),
-                    44,
-                ),
-                11.0,
-                contrast_text_color(preset_color),
-                true,
-            ),
-            TextPaint {
-                text: "Choose values from the menus · drag lower-right corner to resize".to_owned(),
-                x: 14,
-                y: height.saturating_sub(16) as i32,
-                max_width: width.saturating_sub(34),
-                size: 9.0,
-                color: self.theme.colors.muted_text,
-                bold: false,
-                centered: false,
-            },
-        ]);
-
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        format!(
-            "{:?}{:?}{:?}{:?}",
-            self.processing_ui.options,
-            self.processing_ui.scope,
-            self.processing_ui.tab,
-            self.processing_ui.open_option
-        )
-        .hash(&mut hasher);
-        let surface = self.ui_text.render(
-            [
-                0x4c45_4745,
-                hasher.finish(),
-                self.processing_ui.running as u64,
-                width as u64 | (u64::from(height) << 32),
-            ],
-            width,
-            height,
-            self.theme.colors.canvas,
-            &rectangles,
-            &text,
-        );
-        output.push(ChromeSurfacePlacement {
-            surface,
-            destination: panel,
-        });
-    }
-
-    fn render_processing_dropdown_surface(&mut self, output: &mut Vec<ChromeSurfacePlacement>) {
-        let Some(option) = self.processing_ui.open_option else {
-            return;
-        };
-        let Some(panel) = self.processing_dropdown_rect() else {
-            return;
-        };
-        let choices = self.processing_option_choices(option);
-        let width = panel.width.round() as u32;
-        let height = panel.height.round() as u32;
-        let mut rectangles = vec![
-            RectPaint {
-                rect: RectI {
-                    x: 3,
-                    y: 3,
-                    width: width.saturating_sub(3),
-                    height: height.saturating_sub(3),
-                },
-                color: 0x0010_1010,
-            },
-            RectPaint {
-                rect: RectI {
-                    x: 0,
-                    y: 0,
-                    width: width.saturating_sub(3),
-                    height: height.saturating_sub(3),
-                },
-                color: self.theme.colors.chrome,
-            },
-        ];
-        let mut text = Vec::with_capacity(choices.len());
-        for (index, choice) in choices.into_iter().enumerate() {
-            let y = 4 + index as i32 * 26;
-            let selected = self.processing_choice_is_selected(option, &choice);
-            let hovered = self.hovered_control
-                == Some(HoverControl::Processing(ProcessingPanelAction::Choice {
-                    option,
-                    choice: index,
-                }));
-            if selected || hovered {
-                rectangles.push(RectPaint {
-                    rect: RectI {
-                        x: 4,
-                        y,
-                        width: width.saturating_sub(11),
-                        height: 25,
-                    },
-                    color: if selected {
-                        self.theme.colors.selection
-                    } else {
-                        hover_adjusted_color(
-                            self.theme.colors.chrome,
-                            true,
-                            color_luminance(self.theme.colors.chrome) < 0.35,
-                        )
-                    },
-                });
-            }
-            text.push(TextPaint {
-                text: if selected {
-                    format!("✓  {choice}")
-                } else {
-                    format!("   {choice}")
-                },
-                x: 10,
-                y: y + 4,
-                max_width: width.saturating_sub(20),
-                size: 12.0,
-                color: if selected {
-                    contrast_text_color(self.theme.colors.selection)
-                } else {
-                    self.theme.colors.text
-                },
-                bold: selected,
-                centered: false,
-            });
-        }
-        output.push(ChromeSurfacePlacement {
-            surface: self.ui_text.render(
-                [0x4c45_4745, 19, option as u64, self.color_mode as u64],
-                width,
-                height,
-                self.theme.colors.chrome,
-                &rectangles,
-                &text,
-            ),
-            destination: panel,
-        });
-    }
-
     fn render_options_surface(&mut self, output: &mut Vec<ChromeSurfacePlacement>) {
         const WIDTH: u32 = 292;
         const HEIGHT: u32 = 206;
@@ -5835,16 +4361,6 @@ impl ViewerApp {
     }
 }
 
-impl Drop for ViewerApp {
-    fn drop(&mut self) {
-        if self.processing_ui.running
-            && let Some(control) = &self.processing_control
-        {
-            control.cancel();
-        }
-    }
-}
-
 impl ApplicationHandler<ViewerEvent> for ViewerApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(error) = self.create_window(event_loop) {
@@ -5859,7 +4375,6 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
             ViewerEvent::FatalBackgroundError(message) => {
                 eprintln!("viewer background failure: {message}");
             }
-            ViewerEvent::Processing(update) => self.apply_processing_update(update),
             ViewerEvent::GpuPrepared(Ok(())) => {
                 self.gpu_promotion_ready = true;
                 self.damage.mark_full();
@@ -5881,11 +4396,15 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 self.resize(size.width, size.height, false);
-                // Present a frame at the new size before returning to the
-                // modal resize loop. Waiting for the next RedrawRequested
-                // leaves the previous frame stretched across the new surface,
-                // which reads as black gutters and rubber-banding pages while
-                // the user drags the window border.
+                // X11 and Wayland deliver a burst of `Resized` events during a
+                // border drag; winit folds them into one `RedrawRequested` per
+                // loop turn, so only the newest size is ever drawn.
+                self.request_redraw();
+                // Windows runs a modal resize loop that does not deliver
+                // `RedrawRequested`; there the frame must be presented here or
+                // the previous one stays stretched across the new surface,
+                // which reads as black gutters and rubber-banding pages.
+                #[cfg(windows)]
                 if !self.surface_suspended {
                     self.frame.redraw_started();
                     self.refresh_status();
@@ -5907,6 +4426,7 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
                     let size = window.inner_size();
                     self.resize(size.width, size.height, false);
                 }
+                self.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 self.frame.redraw_started();
@@ -5985,10 +4505,6 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
                     prompt.insert(&text);
                     self.damage.mark_full();
                     self.request_redraw();
-                } else if self.processing_ui.resolution_editing {
-                    self.insert_resolution_text(&text);
-                    self.damage.mark_full();
-                    self.request_redraw();
                 } else if self.search_ui.open {
                     self.search_ui.preedit.clear();
                     self.insert_search_text(&text);
@@ -5999,13 +4515,12 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
                 self.cancel_autoscroll();
                 self.touch_pan = None;
                 // Every pointer gesture ends here: the canvas pan, the thumb
-                // drag, a held track repeat, and the panel resize all live in
-                // `capture`, and the release event that would have ended them
-                // is going to another window.
+                // drag, and a held track repeat all live in `capture`, and the
+                // release event that would have ended them is going to another
+                // window.
                 self.input.capture = None;
                 self.input.left_button_down = false;
                 self.hovered_control = None;
-                self.commit_resolution_edit();
                 self.scrollbar.end_drag();
                 self.pointer_warm = None;
                 self.search_ui.preedit.clear();
@@ -6078,6 +4593,13 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
     }
 }
 
+/// The base window and dialog title; the open document's name follows it.
+const WINDOW_TITLE: &str = "Liminaldoc";
+
+fn window_title(document: &str) -> String {
+    format!("{WINDOW_TITLE} — {document}")
+}
+
 fn open_document_engine(
     path: &std::path::Path,
     password: Option<&str>,
@@ -6121,7 +4643,7 @@ fn report_document_error(path: &std::path::Path, message: &str) {
     eprintln!("liminaldoc-reader: {text}");
     let _ = rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Error)
-        .set_title("Lege")
+        .set_title(WINDOW_TITLE)
         .set_description(text)
         .show();
 }
@@ -6149,15 +4671,6 @@ fn external_uri_is_allowed(uri: &str) -> bool {
         scheme.to_ascii_lowercase().as_str(),
         "http" | "https" | "mailto"
     )
-}
-
-fn default_processing_output(input: &std::path::Path, extension: &str) -> std::path::PathBuf {
-    let stem = input
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("document");
-    input.with_file_name(format!("{stem}-lege.{extension}"))
 }
 
 /// Which axis a fine movement command moves along.
@@ -6669,6 +5182,76 @@ fn draw_page_number_marker(
         height: 3,
     };
     painter.fill_rect(marker, color);
+}
+
+/// Embedded launcher art. `None` if the PNG cannot be decoded; the window
+/// still opens.
+fn window_icon() -> Option<winit::window::Icon> {
+    let bitmap = liminalkit_raster::png::decode(include_bytes!("../assets/icon.png")).ok()?;
+    // A 256px icon does not survive winit's X11 property write. 128px is what
+    // the title bar and taskbar display.
+    let (width, height, pixels) = icon_pixels(&bitmap, 128);
+    let mut rgba = Vec::with_capacity(pixels.len() * 4);
+    for pixel in &pixels {
+        rgba.extend_from_slice(&[
+            ((pixel >> 16) & 255) as u8,
+            ((pixel >> 8) & 255) as u8,
+            (pixel & 255) as u8,
+            (pixel >> 24) as u8,
+        ]);
+    }
+    winit::window::Icon::from_rgba(rgba, width, height).ok()
+}
+
+fn icon_pixels(bitmap: &liminalkit_raster::Bitmap, side: u32) -> (u32, u32, Vec<u32>) {
+    let side = side.min(bitmap.width.min(bitmap.height)).max(1);
+    if bitmap.width == side && bitmap.height == side {
+        return (side, side, bitmap.pixels.clone());
+    }
+    let mut out = vec![0; (side * side) as usize];
+    for y in 0..side {
+        let y0 = y * bitmap.height / side;
+        let y1 = ((y + 1) * bitmap.height / side).max(y0 + 1);
+        for x in 0..side {
+            let x0 = x * bitmap.width / side;
+            let x1 = ((x + 1) * bitmap.width / side).max(x0 + 1);
+            let mut alpha = 0u32;
+            let mut red = 0u32;
+            let mut green = 0u32;
+            let mut blue = 0u32;
+            let mut count = 0u32;
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    let pixel = bitmap.pixels[(sy * bitmap.width + sx) as usize];
+                    alpha += pixel >> 24;
+                    red += (pixel >> 16) & 255;
+                    green += (pixel >> 8) & 255;
+                    blue += pixel & 255;
+                    count += 1;
+                }
+            }
+            out[(y * side + x) as usize] =
+                (alpha / count) << 24 | (red / count) << 16 | (green / count) << 8 | (blue / count);
+        }
+    }
+    (side, side, out)
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod icon_tests {
+    #[test]
+    fn reader_icon_is_a_transparent_rounded_square() {
+        let bitmap = liminalkit_raster::png::decode(include_bytes!("../assets/icon.png"))
+            .expect("reader icon");
+        assert_eq!((bitmap.width, bitmap.height), (256, 256));
+        assert_eq!(bitmap.pixels[0] >> 24, 0, "corner stays transparent");
+        let top = bitmap.pixels[(18 * 256 + 128) as usize];
+        let red = (top >> 16) & 255;
+        let blue = top & 255;
+        assert!(red > blue, "reader icon is the warm one, got {top:#x}");
+        assert!(super::window_icon().is_some());
+    }
 }
 
 #[cfg(all(test, feature = "softbuffer-presenter"))]

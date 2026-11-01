@@ -29,7 +29,7 @@ fn editor_with(paragraphs: usize) -> Editor {
         })
         .unwrap();
     editor.paste_text(&body.join("\n"));
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     editor
 }
@@ -102,7 +102,7 @@ fn up_and_down_follow_typeset_lines_across_pages() {
     for _ in 0..200 {
         editor.move_line(true, false);
     }
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     assert!(
         editor.pager().scroll() >= 1.0,
@@ -118,7 +118,7 @@ fn up_and_down_follow_typeset_lines_across_pages() {
 #[test]
 fn clicking_a_line_puts_the_caret_there() {
     let mut editor = editor_with(4);
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     let caret_before = editor.caret_area().unwrap();
     // Click back at the start of the page's text area: the first line.
@@ -150,7 +150,7 @@ fn reopening_a_book_shows_the_page_the_caret_was_saved_on() {
     let path = dir.join("Long.legebook");
     let mut editor = Editor::open_or_create(&path).unwrap();
     editor.paste_text(&"Typing resumes where it stopped, pages in.\n".repeat(1500));
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut frame);
     let pages = editor.pager().pages();
     assert!(pages > 10, "{pages} pages");
@@ -302,12 +302,18 @@ fn damaged_or_interrupted_paths_are_never_created_as_new_books() {
     std::fs::rename(&path, &old).unwrap();
     std::fs::create_dir(&path).unwrap();
     std::fs::write(path.join("book.json"), "{broken").unwrap();
-    assert!(Editor::open_or_create(&path).is_err());
+    // A damaged live generation falls back to the last valid one.
+    let mut recovered = Editor::open_or_create(&path).unwrap();
+    assert_eq!(recovered.book().plain_text(), "Safe text");
+    recovered.type_text(" more");
+    recovered.save_now().unwrap();
+    assert!(!old.exists());
+    assert!(dir.join(".Novel.legebook.damaged").exists());
     assert_eq!(
-        docwrite_model::Book::load_bundle(&old)
+        docwrite_model::Book::load_bundle(&path)
             .unwrap()
             .plain_text(),
-        "Safe text"
+        "Safe text more"
     );
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -364,7 +370,7 @@ fn imported_text_saves_as_native_book_without_overwriting_source() {
 fn the_caret_is_drawn_on_its_own_line_of_a_wrapped_paragraph() {
     let mut editor = editor_with(1);
     let first = editor.book().block_ids()[0];
-    let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor
         .book_mut()
         .set_selection(Selection::collapsed(Position::new(first, 2)))

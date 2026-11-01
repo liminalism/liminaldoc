@@ -10,7 +10,7 @@ use docwrite_typeset::{Document, Face, Geometry, Paragraph, ParagraphStyle};
 
 fn face() -> Face {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     Face::parse(std::fs::read(path).unwrap()).unwrap()
 }
 

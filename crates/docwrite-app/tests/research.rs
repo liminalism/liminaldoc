@@ -20,8 +20,8 @@ fn source_pdf() -> std::path::PathBuf {
     path
 }
 
-fn frame(editor: &mut Editor) -> pixelkit_raster::WindowBuffer {
-    let mut buffer = pixelkit_raster::WindowBuffer::new(1500, 900);
+fn frame(editor: &mut Editor) -> liminalkit_raster::WindowBuffer {
+    let mut buffer = liminalkit_raster::WindowBuffer::new(1500, 900);
     editor.paint(&mut buffer);
     buffer
 }
@@ -108,7 +108,7 @@ fn capture_quote_cite_and_follow_back() {
     );
 
     // The toolbar spans the source pane, but the pane must not consume its clicks.
-    editor.paint(&mut pixelkit_raster::WindowBuffer::new(900, 800));
+    editor.paint(&mut liminalkit_raster::WindowBuffer::new(900, 800));
     let contents = editor
         .toolbar_buttons(900)
         .into_iter()

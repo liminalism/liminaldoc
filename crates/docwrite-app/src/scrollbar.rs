@@ -196,7 +196,7 @@ impl Editor {
         (visible / self.row_pitch * f64::from(self.per_row)).max(0.05)
     }
 
-    pub(crate) fn paint_scrollbar(&mut self, painter: &mut pixelkit_raster::Painter<'_>) {
+    pub(crate) fn paint_scrollbar(&mut self, painter: &mut liminalkit_raster::Painter<'_>) {
         let w = self.scrollbar_width();
         if w == 0 {
             self.scrollbar = None;
@@ -216,10 +216,10 @@ impl Editor {
             self.ui_scale,
         );
         let theme = self.theme_now;
-        painter.fill_rect(pixelkit_raster::Rect::new(x, y, w, h), theme.chrome);
+        painter.fill_rect(liminalkit_raster::Rect::new(x, y, w, h), theme.chrome);
         let inset = self.ui_scale.round().max(1.0) as i32;
         painter.fill_rect(
-            pixelkit_raster::Rect::new(
+            liminalkit_raster::Rect::new(
                 x + inset,
                 bar.thumb_top + inset,
                 (w - 2 * inset).max(1),
@@ -272,7 +272,7 @@ mod tests {
         assert!((editor.pager().scroll() - 0.4).abs() < 1e-9);
         // A trackpad gesture reports per-event pixel steps; they add up, and
         // the view settles on the nearer page when the fingers lift.
-        let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+        let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
         editor.paint(&mut frame);
         let pitch = editor.row_pitch as f32;
         editor.scroll_by_pages(-editor.pager().scroll());
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn scrollbar_thumb_drags_the_view_and_track_clicks_page() {
         let mut editor = long_book();
-        let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+        let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
         editor.paint(&mut frame);
         let bar = editor.scrollbar().unwrap();
         assert_eq!(bar.x + bar.w, 1100, "the track hugs the right edge");

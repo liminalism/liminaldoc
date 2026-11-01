@@ -13,7 +13,7 @@ use docwrite_typeset::{Document, Face, from_book, update_from_book};
 
 fn face() -> Face {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     Face::parse(std::fs::read(path).unwrap()).unwrap()
 }
 
@@ -204,4 +204,31 @@ fn chapter_titles_stay_off_the_page_and_follow_renames() {
             .any(|page| document.page_running_head(page).as_deref() == Some("A Renamed Chapter")),
         "running heads follow the rename"
     );
+}
+
+#[test]
+fn a_template_can_set_the_chapter_title_on_the_opener_and_it_follows_renames() {
+    let mut book = book(3, 3, false);
+    let mut template = book.chapter_templates()[0].clone();
+    template.show_title = true;
+    book.set_chapter_template(template).unwrap();
+    let mut document = from_book(&book, face()).unwrap();
+    let ids: Vec<_> = book.parts()[0].chapters().iter().map(|c| c.id()).collect();
+    let on_a_page = |document: &Document, title: &str| {
+        (1..=document.page_count())
+            .any(|page| document.page_texts(page).first().map(String::as_str) == Some(title))
+    };
+    assert!(on_a_page(&document, "Chapter 2"));
+    book.rename_chapter(ids[1], "Renamed").unwrap();
+    update_from_book(&mut document, &book).unwrap();
+    assert_matches_fresh(&document, &book, "rename with a visible title");
+    assert!(on_a_page(&document, "Renamed"));
+    assert!(!on_a_page(&document, "Chapter 2"));
+    // Turning the template option off removes every opener title at once.
+    let mut template = book.chapter_templates()[0].clone();
+    template.show_title = false;
+    book.set_chapter_template(template).unwrap();
+    update_from_book(&mut document, &book).unwrap();
+    assert_matches_fresh(&document, &book, "title hidden again");
+    assert!(!on_a_page(&document, "Renamed"));
 }

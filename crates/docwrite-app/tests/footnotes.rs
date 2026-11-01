@@ -7,7 +7,7 @@ use docwrite_app::{Editor, PromptKind};
 use docwrite_model::{NoteKind, Position, Selection};
 
 fn frame(editor: &mut Editor) {
-    let mut buffer = pixelkit_raster::WindowBuffer::new(1100, 800);
+    let mut buffer = liminalkit_raster::WindowBuffer::new(1100, 800);
     editor.paint(&mut buffer);
 }
 

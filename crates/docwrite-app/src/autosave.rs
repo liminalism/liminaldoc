@@ -183,13 +183,15 @@ mod tests {
     }
 
     #[test]
-    fn unnamed_documents_wait_for_save_as() {
+    fn unnamed_documents_never_touch_a_named_file_before_save_as() {
+        let recovery = tempfile::tempdir().unwrap();
         let mut editor = Editor::new_document("Untitled");
+        editor.set_recovery_root(recovery.path());
         editor.type_text("Unsaved draft");
         let interval = AutosaveInterval::default();
-        assert!(!editor.autosave_at(interval, editor.last_save_attempt + interval.duration()));
+        assert!(!editor.autosave_at(interval, editor.last_save_attempt));
         assert!(editor.is_dirty());
-        assert!(!editor.needs_save_tick());
+        assert!(editor.bundle().is_none());
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Draft.legebook");
         editor.save_as_bundle(&path).unwrap();

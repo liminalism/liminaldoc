@@ -10,7 +10,7 @@ use docwrite_typeset::{Face, FaceStyle, PaintedLine, from_book_with};
 
 fn face() -> Face {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     Face::parse(std::fs::read(path).unwrap()).unwrap()
 }
 
@@ -189,10 +189,18 @@ fn direct_alignment_overrides_the_style() {
         (left_gap - right_gap).abs() < 1.0,
         "centered: {left_gap} vs {right_gap}"
     );
-    // Untouched paragraphs keep their styles: the opener does not indent
-    // its first line, and Body still justifies with a first indent.
+    // Untouched paragraphs keep their first-line indents.
     let opener = lines_of(&book, "Opening words");
-    assert_eq!(opener[0].indent, 0.0, "first paragraphs do not indent");
+    assert_eq!(opener[0].indent, 12.0, "first paragraphs indent");
     let body = lines_of(&book, "Closing words");
     assert_eq!(body[0].indent, 12.0, "Body keeps its first indent");
+}
+
+#[test]
+fn prose_tab_advances_without_pushing_text_to_the_right_margin() {
+    let mut book = Book::new("Tabs");
+    book.insert("A\tB").unwrap();
+    let lines = lines_of(&book, "A\tB");
+    let width = width(&lines[0]);
+    assert!(width > 15.0 && width < 100.0, "tabbed text width: {width}");
 }

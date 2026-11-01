@@ -1,4 +1,4 @@
-//! The File menu: a PixelKit-drawn drop-down under the toolbar's File
+//! The File menu: a liminalkit-drawn drop-down under the toolbar's File
 //! button, holding the file commands and the recent-files list.
 //!
 //! The window host owns dialogs and the recent list; the menu only turns a
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use crate::Editor;
 use crate::tabs::TabCommand;
-use pixelkit_shell::KeyInput;
+use liminalkit_shell::KeyInput;
 
 /// Menu row height in logical pixels.
 const ROW_H: f32 = 22.0;
@@ -347,7 +347,7 @@ impl Editor {
     /// Draw the open menu over the pages.
     pub(crate) fn paint_file_menu(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &docwrite_typeset::Face,
     ) {
         let Some(menu) = self.menu.clone() else {
@@ -357,7 +357,7 @@ impl Editor {
         let theme = self.theme_now;
         let border = s.round().max(1.0) as i32;
         painter.fill_rect(
-            pixelkit_raster::Rect::new(
+            liminalkit_raster::Rect::new(
                 menu.x - border,
                 menu.y - border,
                 menu.w + 2 * border,
@@ -366,7 +366,7 @@ impl Editor {
             theme.rule,
         );
         painter.fill_rect(
-            pixelkit_raster::Rect::new(menu.x, menu.y, menu.w, menu.h),
+            liminalkit_raster::Rect::new(menu.x, menu.y, menu.w, menu.h),
             theme.chrome,
         );
         let size = 11.0 * s;
@@ -378,13 +378,18 @@ impl Editor {
             if item.separator {
                 let rule_y = top - (SEPARATOR_H * s / 2.0) as i32;
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(menu.x + inset / 2, rule_y, menu.w - inset, border),
+                    liminalkit_raster::Rect::new(
+                        menu.x + inset / 2,
+                        rule_y,
+                        menu.w - inset,
+                        border,
+                    ),
                     theme.rule,
                 );
             }
             if menu.highlighted == Some(index) && item.enabled() {
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(menu.x + border, top, menu.w - 2 * border, h),
+                    liminalkit_raster::Rect::new(menu.x + border, top, menu.w - 2 * border, h),
                     theme.selection,
                 );
             }
@@ -394,7 +399,7 @@ impl Editor {
             } else {
                 theme.rule
             };
-            painter.push_clip(pixelkit_raster::Rect::new(menu.x, top, menu.w, h));
+            painter.push_clip(liminalkit_raster::Rect::new(menu.x, top, menu.w, h));
             let shortcut_w: f32 = if item.shortcut.is_empty() {
                 0.0
             } else {
@@ -531,7 +536,7 @@ mod tests {
     fn clicking_a_row_sends_its_command_and_clicking_outside_closes() {
         let mut editor = Editor::new_document("Menu");
         editor.set_recent_files(vec![PathBuf::from("/books/One.legebook")]);
-        let mut frame = pixelkit_raster::WindowBuffer::new(1100, 800);
+        let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
         editor.paint(&mut frame);
         editor.open_file_menu();
         editor.paint(&mut frame);

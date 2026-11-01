@@ -665,13 +665,14 @@ dependencies = [
  "docwrite-typeset",
  "docx-rust",
  "lege-pdf-read",
- "pixelkit-raster",
- "pixelkit-shell",
- "pixelkit-windowing",
+ "liminalkit-raster",
+ "liminalkit-shell",
+ "liminalkit-windowing",
  "quick-xml",
  "rfd",
  "tempfile",
  "unicode-segmentation",
+ "winit",
  "zip 8.6.0",
 ]
 
@@ -703,7 +704,7 @@ dependencies = [
  "docwrite-model",
  "harfrust 0.13.3",
  "hyphenation",
- "pixelkit-raster",
+ "liminalkit-raster",
  "skrifa 0.47.0",
  "unicode-bidi",
  "unicode-linebreak",
@@ -1548,6 +1549,7 @@ dependencies = [
  "crossbeam-channel",
  "lege-gpu",
  "libc",
+ "liminalkit-raster",
  "open",
  "pdf-content",
  "pdf-document",
@@ -1567,6 +1569,34 @@ dependencies = [
  "softbuffer",
  "tempfile",
  "thiserror 2.0.20",
+ "winit",
+]
+
+[[package]]
+name = "liminalkit-raster"
+version = "0.1.0"
+dependencies = [
+ "wide",
+]
+
+[[package]]
+name = "liminalkit-shell"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "liminalkit-raster",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "zeroize",
+]
+
+[[package]]
+name = "liminalkit-windowing"
+version = "0.1.0"
+dependencies = [
+ "liminalkit-raster",
+ "liminalkit-shell",
+ "softbuffer",
  "winit",
 ]
 
@@ -2502,34 +2532,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "pixelkit-raster"
-version = "0.1.0"
-dependencies = [
- "wide",
-]
-
-[[package]]
-name = "pixelkit-shell"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "pixelkit-raster",
- "zeroize",
-]
-
-[[package]]
-name = "pixelkit-windowing"
-version = "0.1.0"
-dependencies = [
- "pixelkit-raster",
- "pixelkit-shell",
- "softbuffer",
- "winit",
-]
 
 [[package]]
 name = "pkg-config"

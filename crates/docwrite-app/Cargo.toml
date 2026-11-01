@@ -20,10 +20,11 @@ docwrite-typeset = { workspace = true }
 docwrite-export = { workspace = true }
 unicode-segmentation = { workspace = true }
 tempfile = { workspace = true }
-pixelkit-raster = { workspace = true }
+liminalkit-raster = { workspace = true }
 lege-pdf-read = { workspace = true }
-pixelkit-shell = { workspace = true }
-pixelkit-windowing = { workspace = true }
+liminalkit-shell = { workspace = true }
+liminalkit-windowing = { workspace = true }
+winit = { workspace = true }
 rfd = { path = "../../../Lege-ecosystem/lege-process/GUI/rfd" }
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 quick-xml = "0.41.0"

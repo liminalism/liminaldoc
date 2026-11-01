@@ -731,7 +731,7 @@ impl Editor {
     /// Draw the toolbar (or the open prompt) across the top of the pages.
     pub(crate) fn paint_toolbar(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         width: i32,
         pages: u32,
@@ -740,11 +740,11 @@ impl Editor {
         let left = 0;
         let height = self.toolbar_height();
         painter.fill_rect(
-            pixelkit_raster::Rect::new(left, 0, width - left, height),
+            liminalkit_raster::Rect::new(left, 0, width - left, height),
             self.theme_now.chrome,
         );
         painter.fill_rect(
-            pixelkit_raster::Rect::new(
+            liminalkit_raster::Rect::new(
                 left,
                 height - (1.0 * s).max(1.0) as i32,
                 width - left,
@@ -776,7 +776,7 @@ impl Editor {
                 .unwrap_or(0.0);
             let field_x = left + (12.0 * s) as i32 + label_w as i32;
             painter.fill_rect(
-                pixelkit_raster::Rect::new(
+                liminalkit_raster::Rect::new(
                     field_x,
                     (2.0 * s) as i32,
                     width - field_x - (6.0 * s) as i32,
@@ -798,7 +798,7 @@ impl Editor {
             let text_x = inner_x - scroll;
             let text_top = baseline - size.ceil() as i32;
             let text_h = size.ceil() as i32 + (4.0 * s) as i32;
-            painter.push_clip(pixelkit_raster::Rect::new(
+            painter.push_clip(liminalkit_raster::Rect::new(
                 inner_x,
                 (2.0 * s) as i32,
                 inner_w,
@@ -809,14 +809,14 @@ impl Editor {
                 let start = text_width(selected.start).round() as i32;
                 let end = text_width(selected.end).round() as i32;
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(text_x + start, text_top, end - start, text_h),
+                    liminalkit_raster::Rect::new(text_x + start, text_top, end - start, text_h),
                     self.theme_now.selection,
                 );
             }
             self.paint_page_label(painter, face, &prompt.text, text_x, baseline, size);
             let caret_x = text_x + caret_offset;
             painter.fill_rect(
-                pixelkit_raster::Rect::new(caret_x, text_top, caret_w, text_h),
+                liminalkit_raster::Rect::new(caret_x, text_top, caret_w, text_h),
                 self.theme_now.ink,
             );
             painter.pop_clip();
@@ -835,7 +835,7 @@ impl Editor {
                 self.theme_now.chrome
             };
             painter.fill_rect(
-                pixelkit_raster::Rect::new(button.x, button.y, button.w, button.h),
+                liminalkit_raster::Rect::new(button.x, button.y, button.w, button.h),
                 fill,
             );
             let label_w: f32 = face
@@ -843,7 +843,7 @@ impl Editor {
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
             let x = button.x + ((button.w as f32 - label_w) / 2.0) as i32;
-            painter.push_clip(pixelkit_raster::Rect::new(
+            painter.push_clip(liminalkit_raster::Rect::new(
                 button.x, button.y, button.w, button.h,
             ));
             self.paint_label(painter, face, &button.label, x, baseline, size);
@@ -868,7 +868,7 @@ impl Editor {
             let x = width - status_w as i32 - (5.0 * s) as i32;
             let reserved = self.page_counter_width();
             painter.fill_rect(
-                pixelkit_raster::Rect::new(width - reserved, 0, reserved, height - 1),
+                liminalkit_raster::Rect::new(width - reserved, 0, reserved, height - 1),
                 self.theme_now.chrome,
             );
             self.paint_label(painter, face, &status, x, baseline, size);

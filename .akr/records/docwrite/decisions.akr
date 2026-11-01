@@ -136,6 +136,23 @@ record docwrite.decision.reader-markdown-parser/1 : decision {
         """
 }
 
+record docwrite.decision.reader-reads-only/1 : decision {
+    title "The reader reads documents and does not process them"
+    state active
+    scope [ path "crates/liminal-reader/**" ]
+    topic reader-reads-only
+    decision """
+        The liminaldoc reader opens and displays documents. It has no PDF processing window, no Process control on the toolbar, and no processing worker.
+        """
+    context """
+        The processing card, its top-row Process button, and the worker that shelled out to the Lege processing command were removed so the reader only reads.
+        """
+    consequences """
+        OCR, binarization, export profiles, and processed-output switching are not reachable from the reader. Open, zoom, fit, contents, trim, search, selection, and appearance stay.
+        """
+    supported_by [ @docwrite.evidence.reader-reads-only/1 ]
+}
+
 record docwrite.decision.styles-masters-templates/1 : decision {
     title "Styles, page masters and chapter templates are three separate systems"
     state proposed

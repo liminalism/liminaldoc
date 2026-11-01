@@ -1370,7 +1370,12 @@ impl Document {
                 {
                     glyph.id = space.id;
                     glyph.face = 0;
-                    glyph.x_advance = space.x_advance;
+                    glyph.x_advance = space.x_advance
+                        * if paragraph.style.name == "Contents Entry" {
+                            1.0
+                        } else {
+                            4.0
+                        };
                 }
             }
         }
@@ -1510,10 +1515,11 @@ impl Document {
             let available = measure - own_indent;
             let natural = natural_width(&paragraph.text, &line.glyphs);
             let slack = (available - natural).max(0.0);
-            if line
-                .glyphs
-                .iter()
-                .any(|glyph| is_tab(&paragraph.text, glyph))
+            if paragraph.style.name == "Contents Entry"
+                && line
+                    .glyphs
+                    .iter()
+                    .any(|glyph| is_tab(&paragraph.text, glyph))
             {
                 // A tab takes the line's slack: what follows sits flush right.
                 if let Some(tab) = line

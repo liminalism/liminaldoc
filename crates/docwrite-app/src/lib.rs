@@ -8,6 +8,7 @@ pub mod menu;
 mod nav;
 mod prompt;
 pub mod recent;
+pub mod recovery;
 mod research;
 mod scrollbar;
 pub mod tabs;
@@ -98,6 +99,12 @@ pub struct Editor {
     pressed_row: Option<usize>,
     bundle: Option<PathBuf>,
     dirty: bool,
+    /// Counts edits, so an untitled draft is written to recovery only when changed.
+    revision: u64,
+    recovered_revision: u64,
+    /// Application-owned bundle that keeps an untitled draft across a crash.
+    recovery: Option<PathBuf>,
+    recovery_root: Option<PathBuf>,
     /// Last save or autosave attempt; typing does not restart this clock.
     last_save_attempt: Instant,
     autosave_request: Option<autosave::AutosaveInterval>,
@@ -188,6 +195,10 @@ impl Editor {
             pressed_row: None,
             bundle: None,
             dirty: false,
+            revision: 0,
+            recovered_revision: 0,
+            recovery: None,
+            recovery_root: None,
             last_save_attempt: Instant::now(),
             autosave_request: None,
             saving: Arc::new(AtomicBool::new(false)),
@@ -338,6 +349,7 @@ impl Editor {
 
     /// Bind autosave and snapshots to `path`. Typing does not write the bundle.
     pub fn open_bundle(&mut self, path: impl Into<PathBuf>) {
+        self.drop_recovery();
         self.bundle = Some(path.into());
         self.last_save_attempt = Instant::now();
     }
@@ -430,7 +442,7 @@ impl Editor {
     /// Draw the window's document tabs and file commands above the page view.
     pub fn paint_tab_strip(
         &mut self,
-        buffer: &mut pixelkit_raster::WindowBuffer,
+        buffer: &mut liminalkit_raster::WindowBuffer,
         labels: &[String],
         active: usize,
         top: i32,
@@ -438,9 +450,9 @@ impl Editor {
         self.ensure_fonts();
         let layout = tabs::TabStripLayout::new(buffer.width as i32, self.ui_scale, labels.len());
         let width = buffer.width as i32;
-        let mut painter = pixelkit_raster::Painter::new(buffer);
+        let mut painter = liminalkit_raster::Painter::new(buffer);
         painter.fill_rect(
-            pixelkit_raster::Rect::new(0, top, width, layout.height),
+            liminalkit_raster::Rect::new(0, top, width, layout.height),
             self.theme_now.chrome,
         );
         let Some(face) = self.faces.first() else {
@@ -453,7 +465,7 @@ impl Editor {
         for (index, label) in labels.iter().enumerate() {
             let x = index as i32 * layout.tab_width;
             painter.fill_rect(
-                pixelkit_raster::Rect::new(
+                liminalkit_raster::Rect::new(
                     x,
                     top,
                     layout.tab_width.saturating_sub(1),
@@ -467,7 +479,7 @@ impl Editor {
             );
             let limit = (layout.tab_width / (6.0 * self.ui_scale).max(1.0) as i32).max(0) as usize;
             let shown: String = label.chars().take(limit.saturating_sub(2)).collect();
-            painter.push_clip(pixelkit_raster::Rect::new(
+            painter.push_clip(liminalkit_raster::Rect::new(
                 x,
                 top,
                 layout.tab_width,
@@ -488,7 +500,7 @@ impl Editor {
     }
 
     /// Draw the desk, the page stack, and the manuscript on those pages.
-    pub fn paint(&mut self, buffer: &mut pixelkit_raster::WindowBuffer) {
+    pub fn paint(&mut self, buffer: &mut liminalkit_raster::WindowBuffer) {
         // Layout first: it can move the view to follow the caret.
         self.refresh_layout();
         self.caret = None;
@@ -529,7 +541,11 @@ impl Editor {
         let gap = (3.0 * self.ui_scale).round().max(1.0) as i32;
         let max_w = ((content_w - 2 * gap) / per_row).max(1);
         let max_h = (height - bar - status_h - 2 * gap).max(1);
-        let (page_w, page_h) = fit_page_size(trim_w, trim_h, max_w, max_h);
+        let (page_w, page_h) = if self.fullscreen {
+            fit_page_size(trim_w, trim_h, max_w, max_h)
+        } else {
+            fit_page_size(trim_w, trim_h, max_w, i32::MAX)
+        };
         self.row_pitch = f64::from((page_h + gap).max(1));
         self.per_row = per_row as u32;
         let visible_page_height = (height - bar - gap).max(1);
@@ -561,11 +577,11 @@ impl Editor {
         } else {
             1
         };
-        let mut painter = pixelkit_raster::Painter::new(buffer);
+        let mut painter = liminalkit_raster::Painter::new(buffer);
         // In full screen the status line owns the bottom strip: pages stop
         // above it instead of sliding underneath.
         if status_h > 0 {
-            painter.push_clip(pixelkit_raster::Rect::new(0, 0, width, height - status_h));
+            painter.push_clip(liminalkit_raster::Rect::new(0, 0, width, height - status_h));
         }
         for slot in -1..4 {
             let row = first + slot;
@@ -576,7 +592,7 @@ impl Editor {
             let row_left = content_left + (content_w - page_w * per_row) / 2;
             if self.fullscreen {
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(0, top - gap, width, gap),
+                    liminalkit_raster::Rect::new(0, top - gap, width, gap),
                     theme.rule,
                 );
             }
@@ -591,7 +607,7 @@ impl Editor {
                 }
                 let left = row_left + column * page_w;
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(left, top, page_w, page_h),
+                    liminalkit_raster::Rect::new(left, top, page_w, page_h),
                     theme.page,
                 );
                 if let Some(document) = document.as_ref() {
@@ -609,7 +625,7 @@ impl Editor {
             if per_row == 2 {
                 // The gutter between the two pages.
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(row_left + page_w - 1, top, 2, page_h),
+                    liminalkit_raster::Rect::new(row_left + page_w - 1, top, 2, page_h),
                     theme.rule,
                 );
             }
@@ -729,10 +745,45 @@ impl Editor {
                 self.pager.page_top() + 1 == page
             }
         };
-        if let Some(page) = page
-            && !shown(page)
-        {
-            self.pager.jump_to(page - 1);
+        if let Some(page) = page {
+            if !shown(page) {
+                self.pager.jump_to(page - 1);
+            } else if !self.spread
+                && !self.fullscreen
+                && let Some(slot) = self.slots.iter().find(|slot| slot.page == page)
+                && slot.height > self.frame_height - self.toolbar_height()
+                && let Some((paragraph, byte)) = focus_mark(&self.book, document)
+            {
+                let line = document
+                    .page_painted_lines(page)
+                    .into_iter()
+                    .filter(|line| line.paragraph == paragraph)
+                    .filter(|line| {
+                        line.glyphs
+                            .iter()
+                            .filter(|g| g.cluster < NOTE_MARK_CLUSTER)
+                            .map(|g| g.cluster as usize)
+                            .min()
+                            .unwrap_or(0)
+                            <= byte
+                    })
+                    .last();
+                if let Some(line) = line {
+                    let scale = slot.width as f32 / document.geometry().page_width;
+                    let y = slot.top as f32 + line.baseline * scale;
+                    let upper = self.toolbar_height() as f32 + line.em * scale;
+                    let lower = self.frame_height as f32 - line.em * scale;
+                    let delta = if y > lower {
+                        y - lower
+                    } else if y < upper {
+                        y - upper
+                    } else {
+                        0.0
+                    };
+                    self.pager
+                        .scroll_by(f64::from(delta) / self.row_pitch * f64::from(self.per_row));
+                }
+            }
         }
     }
 
@@ -778,7 +829,7 @@ impl Editor {
 
     /// How many painted pixels equal `color`.
     pub fn pixels_of(&mut self, width: u32, height: u32, color: u32) -> usize {
-        let mut buffer = pixelkit_raster::WindowBuffer::new(width, height);
+        let mut buffer = liminalkit_raster::WindowBuffer::new(width, height);
         self.paint(&mut buffer);
         buffer
             .pixels
@@ -789,7 +840,7 @@ impl Editor {
 
     /// How many pixels of the painted window are neither the desk nor the page.
     pub fn painted_ink(&mut self, width: u32, height: u32) -> usize {
-        let mut buffer = pixelkit_raster::WindowBuffer::new(width, height);
+        let mut buffer = liminalkit_raster::WindowBuffer::new(width, height);
         self.paint(&mut buffer);
         buffer
             .pixels
@@ -802,7 +853,7 @@ impl Editor {
     #[allow(clippy::too_many_arguments)]
     fn paint_page(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         document: &Document,
         page: u32,
         left: i32,
@@ -825,7 +876,7 @@ impl Editor {
             height: page_h,
             scale,
         });
-        painter.push_clip(pixelkit_raster::Rect::new(left, top, page_w, page_h));
+        painter.push_clip(liminalkit_raster::Rect::new(left, top, page_w, page_h));
         if let Some(head) = document.page_running_head(page) {
             self.paint_page_label(
                 painter,
@@ -878,14 +929,14 @@ impl Editor {
                     .map(|glyph| glyph.x_advance * scale)
                     .sum();
                 caret_x = (start_x + before).round() as i32;
-                caret_y = baseline - (line.em * scale) as i32;
+                caret_y = baseline - (line.em * scale * 0.8) as i32;
             }
             let mut pen = start_x;
             for glyph in &line.glyphs {
                 let advance = glyph.x_advance * scale;
                 if span_covers(&selected, line.paragraph, glyph.cluster as usize) {
                     painter.fill_rect(
-                        pixelkit_raster::Rect::new(
+                        liminalkit_raster::Rect::new(
                             pen.round() as i32,
                             baseline - (line.em * scale) as i32,
                             (advance.round() as i32).max(1),
@@ -920,7 +971,7 @@ impl Editor {
                 let preedit = self.preedit.clone();
                 let size = geometry.font_size * scale;
                 let before = caret_x;
-                let baseline = caret_y + height;
+                let baseline = caret_y + (height as f32 * 0.8) as i32;
                 if let Ok(glyphs) = face.shape(&preedit, size.max(1.0), &[]) {
                     for glyph in glyphs {
                         draw_glyph(
@@ -937,12 +988,17 @@ impl Editor {
                     }
                 }
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(before, baseline + 2, (caret_x - before).max(1), 1),
+                    liminalkit_raster::Rect::new(
+                        before,
+                        baseline + 2,
+                        (caret_x - before).max(1),
+                        1,
+                    ),
                     self.theme_now.ink,
                 );
             }
             painter.fill_rect(
-                pixelkit_raster::Rect::new(caret_x, caret_y, 2, height),
+                liminalkit_raster::Rect::new(caret_x, caret_y, 2, height),
                 self.theme_now.ink,
             );
             self.caret = Some(CaretRect {
@@ -958,7 +1014,7 @@ impl Editor {
         // Footnotes: a short rule, then the lines at footnote size.
         if let Some((rule_y, rule_w)) = document.page_footnote_rule(page) {
             painter.fill_rect(
-                pixelkit_raster::Rect::new(
+                liminalkit_raster::Rect::new(
                     left + (inset * scale) as i32,
                     top + (rule_y * scale) as i32,
                     (rule_w * scale) as i32,
@@ -999,7 +1055,7 @@ impl Editor {
                 .sum();
             let mut caret_x = (left as f32 + inset * scale + before).round() as i32;
             let height = (note.em * scale).max(1.0) as i32;
-            let caret_y = baseline - height;
+            let caret_y = baseline - (height as f32 * 0.8) as i32;
             if !self.preedit.is_empty() {
                 let preedit = self.preedit.clone();
                 let size = note.em * scale;
@@ -1020,12 +1076,12 @@ impl Editor {
                     }
                 }
                 painter.fill_rect(
-                    pixelkit_raster::Rect::new(start, baseline + 2, (caret_x - start).max(1), 1),
+                    liminalkit_raster::Rect::new(start, baseline + 2, (caret_x - start).max(1), 1),
                     self.theme_now.ink,
                 );
             }
             painter.fill_rect(
-                pixelkit_raster::Rect::new(caret_x, caret_y, 2, height),
+                liminalkit_raster::Rect::new(caret_x, caret_y, 2, height),
                 self.theme_now.ink,
             );
             self.caret = Some(CaretRect {
@@ -1043,7 +1099,7 @@ impl Editor {
 
     fn paint_label(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         text: &str,
         x: i32,
@@ -1055,7 +1111,7 @@ impl Editor {
 
     fn paint_page_label(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         text: &str,
         x: i32,
@@ -1067,7 +1123,7 @@ impl Editor {
 
     fn paint_label_with_color(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         face: &Face,
         text: &str,
         x: i32,
@@ -1096,14 +1152,14 @@ impl Editor {
 
     fn paint_sidebar(
         &mut self,
-        painter: &mut pixelkit_raster::Painter<'_>,
+        painter: &mut liminalkit_raster::Painter<'_>,
         height: i32,
         face: Option<&Face>,
     ) {
         let s = self.ui_scale;
         let width = self.sidebar_width();
         painter.fill_rect(
-            pixelkit_raster::Rect::new(
+            liminalkit_raster::Rect::new(
                 0,
                 self.toolbar_height(),
                 width,
@@ -1122,7 +1178,7 @@ impl Editor {
                 }
             };
             painter.fill_rect(
-                pixelkit_raster::Rect::new(
+                liminalkit_raster::Rect::new(
                     (4.0 * s) as i32,
                     (y - 9.0 * s) as i32,
                     width - (8.0 * s) as i32,
@@ -1131,7 +1187,7 @@ impl Editor {
                 color,
             );
             if let Some(face) = face {
-                painter.push_clip(pixelkit_raster::Rect::new(
+                painter.push_clip(liminalkit_raster::Rect::new(
                     0,
                     0,
                     width - (12.0 * s) as i32,
@@ -1169,7 +1225,7 @@ impl Editor {
 
     /// Insert `text` at the caret, replacing any selection. Newlines start paragraphs.
     pub fn type_text(&mut self, text: &str) {
-        if self.book.insert(text).is_ok() {
+        if self.book.type_text(text).is_ok() {
             self.edited();
         }
     }
@@ -1224,7 +1280,7 @@ impl Default for Editor {
 #[allow(clippy::too_many_arguments)]
 fn draw_glyph(
     atlas: &mut GlyphAtlas,
-    painter: &mut pixelkit_raster::Painter<'_>,
+    painter: &mut liminalkit_raster::Painter<'_>,
     face: &Face,
     glyph: u16,
     size: f32,
@@ -1250,7 +1306,7 @@ fn draw_glyph(
 
 fn paint_tab_label(
     atlas: &mut GlyphAtlas,
-    painter: &mut pixelkit_raster::Painter<'_>,
+    painter: &mut liminalkit_raster::Painter<'_>,
     face: &Face,
     text: &str,
     x: i32,
@@ -1387,7 +1443,7 @@ pub(crate) fn family_defs() -> Vec<FamilyDef> {
         });
     }
     let noto = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     defs.push(FamilyDef {
         name: "Noto Sans",
         files: [vec![noto], Vec::new(), Vec::new(), Vec::new()],
@@ -1531,17 +1587,25 @@ mod page_fit_tests {
             editor.set_ui_scale(scale);
             for fullscreen in [false, true] {
                 editor.set_fullscreen(fullscreen);
-                let mut frame = pixelkit_raster::WindowBuffer::new(width, height);
+                let mut frame = liminalkit_raster::WindowBuffer::new(width, height);
                 for page in [1, pages / 2, pages] {
                     editor.seek_page(page);
                     editor.paint(&mut frame);
                     let slot = editor.slots.iter().find(|slot| slot.page == page).unwrap();
                     let bottom = height as i32 - if fullscreen { (22.0 * scale) as i32 } else { 0 };
                     assert!(slot.top >= editor.toolbar_height());
-                    assert!(
-                        slot.top + slot.height <= bottom,
-                        "page {page} extends below {width}x{height}"
-                    );
+                    if fullscreen {
+                        assert!(slot.top + slot.height <= bottom);
+                    } else {
+                        assert!(
+                            slot.width
+                                >= width as i32
+                                    - editor.sidebar_width()
+                                    - editor.pane_width()
+                                    - editor.scrollbar_width()
+                                    - (8.0 * scale) as i32
+                        );
+                    }
                     assert!(slot.left >= 0 && slot.left + slot.width <= width as i32);
                     assert_eq!(
                         editor.layout_generation(),
@@ -1584,4 +1648,14 @@ pub fn display_unavailable() -> bool {
         && !cfg!(target_os = "macos")
         && std::env::var_os("DISPLAY").is_none()
         && std::env::var_os("WAYLAND_DISPLAY").is_none()
+}
+
+impl Drop for Editor {
+    /// Closing a draft that was saved or discarded removes its recovery
+    /// bundle. A panic keeps it, so the next launch can offer it.
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.drop_recovery();
+        }
+    }
 }

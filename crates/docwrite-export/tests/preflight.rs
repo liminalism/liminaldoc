@@ -17,13 +17,14 @@ fn preflight_reports_fonts_images_and_broken_links() {
     )
     .unwrap();
     let facts = AssetFacts {
+        typefaces: &["Body".into(), "Absent Serif".into()],
         fonts_on_disk: &["Body".into()],
         embeddable: &[],
         images: &[("plate", 72)],
         linked_targets_that_exist: &[],
     };
     let report = preflight(&book, &facts);
-    assert!(report.missing_fonts.iter().any(|font| font == "Noto Sans"));
+    assert!(report.missing_fonts == ["Absent Serif"]);
     assert!(report.unembeddable_fonts.iter().any(|font| font == "Body"));
     assert!(
         report
@@ -37,7 +38,7 @@ fn preflight_reports_fonts_images_and_broken_links() {
             .iter()
             .any(|link| link == "missing-figure")
     );
-    assert!(!report.font_embedding_warnings.is_empty());
+    assert_eq!(report.font_embedding_warnings, ["Body cannot be embedded"]);
     println!("preflight missing fonts: {:?}", report.missing_fonts);
     println!(
         "preflight unembeddable fonts: {:?}",
@@ -54,5 +55,26 @@ fn preflight_reports_fonts_images_and_broken_links() {
     println!(
         "preflight font-embedding warnings: {:?}",
         report.font_embedding_warnings
+    );
+}
+
+#[test]
+fn preflight_does_not_assume_a_default_face_and_ignores_unused_fonts() {
+    let book = Book::new("Essay");
+    let facts = AssetFacts {
+        typefaces: &["Source Serif".into()],
+        fonts_on_disk: &["Source Serif".into(), "Unrelated Font".into()],
+        embeddable: &["Source Serif".into()],
+        images: &[],
+        linked_targets_that_exist: &[],
+    };
+    assert!(preflight(&book, &facts).is_clean());
+    let none = AssetFacts {
+        typefaces: &[],
+        ..facts
+    };
+    assert_eq!(
+        preflight(&book, &none).missing_fonts,
+        ["no typeface selected"]
     );
 }

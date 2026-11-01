@@ -87,7 +87,7 @@ fn long_prompt_selection_and_caret_are_painted_inside_the_field() {
     for (width, scale) in [(640, 1.0), (1100, 1.5)] {
         editor.set_ui_scale(scale);
         editor.prompt_move(PromptMotion::End, false);
-        let mut buffer = pixelkit_raster::WindowBuffer::new(width, 800);
+        let mut buffer = liminalkit_raster::WindowBuffer::new(width, 800);
         editor.paint(&mut buffer);
         let end = editor.caret_area().unwrap();
         assert!(end.x > 0.0 && end.x + end.width < f64::from(width));

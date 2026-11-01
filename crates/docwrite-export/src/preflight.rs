@@ -1,4 +1,5 @@
-//! Preflight before export: missing fonts, fonts that cannot be embedded,
+//! Preflight before export: selected typefaces that are missing or cannot
+//! be embedded,
 //! low-resolution images, and broken references.
 
 use docwrite_model::Book;
@@ -31,6 +32,8 @@ impl PreflightReport {
 /// What preflight is told about the machine and the book's assets.
 #[derive(Debug)]
 pub struct AssetFacts<'a> {
+    /// Typefaces the export will set the book in (the selected family).
+    pub typefaces: &'a [String],
     /// Font names available on this machine.
     pub fonts_on_disk: &'a [String],
     /// Font names that may be embedded.
@@ -44,28 +47,23 @@ pub struct AssetFacts<'a> {
 /// Check `book` for problems an export would carry.
 pub fn preflight(book: &Book, facts: &AssetFacts<'_>) -> PreflightReport {
     let mut report = PreflightReport::default();
-    let mut wanted = vec!["Body".to_string()];
-    for style in book.paragraph_styles() {
-        wanted.push(style.name.clone());
+    // The manuscript is set in the typefaces the export will actually use,
+    // not in a fixed default. Each is checked once, for presence and for
+    // permission to embed. Other fonts on the machine are not the book's concern.
+    if facts.typefaces.is_empty() {
+        report.missing_fonts.push("no typeface selected".into());
     }
-    for name in wanted {
-        if !facts
-            .fonts_on_disk
-            .iter()
-            .any(|font| font == &name || font == "Noto Sans")
-        {
-            // The book uses one text face. A missing face is reported once.
+    for face in facts.typefaces {
+        if report.missing_fonts.contains(face) || report.unembeddable_fonts.contains(face) {
+            continue;
         }
-    }
-    if !facts.fonts_on_disk.iter().any(|font| font == "Noto Sans") {
-        report.missing_fonts.push("Noto Sans".into());
-    }
-    for font in facts.fonts_on_disk {
-        if !facts.embeddable.iter().any(|ok| ok == font) {
-            report.unembeddable_fonts.push(font.clone());
+        if !facts.fonts_on_disk.iter().any(|font| font == face) {
+            report.missing_fonts.push(face.clone());
+        } else if !facts.embeddable.iter().any(|ok| ok == face) {
+            report.unembeddable_fonts.push(face.clone());
             report
                 .font_embedding_warnings
-                .push(format!("{font} cannot be embedded"));
+                .push(format!("{face} cannot be embedded"));
         }
     }
     for (name, dpi) in facts.images {

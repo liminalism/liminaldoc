@@ -422,6 +422,23 @@ record docwrite.observation.reader-open-sniffs-content-first/1 : observation {
     author "dk"
 }
 
+record docwrite.observation.reader-resize-presentation/1 : observation {
+    title "Reader resize: per-event presentation churn fixed; GPU surface still goes Outdated on X11 and falls back"
+    state verified
+    scope [ path "crates/liminal-reader/**" ]
+    statement """
+        Reader resize on X11 (Lubuntu LXQt, NVIDIA Vulkan). REPORTED by the user, not measured: dragging the border flashes through intermediate sizes, and sometimes the content trails the border very slowly. FOUND BY CODE READING (a Fable advisor agreed independently): WindowEvent::Resized ran a full resize, compose and present per event, and GpuCompositor::resize reconfigures the swapchain unconditionally under AutoVsync, so a burst of border-drag events queued blocking presents; the window also opened with PhysicalSize rather than LogicalSize, so on a scaled display it opened smaller and could shrink further than intended. CHANGED: Resized now only lays out and requests a redraw (winit folds the burst into one RedrawRequested per loop turn); the synchronous present stays only under cfg(windows) for the modal resize loop, untested; presenters adopt the scene size lazily on the frame actually drawn, with WgpuPresenter skipping same-size resizes; ScaleFactorChanged requests a redraw; window sizes are logical; the reader window and dialog title is now one WINDOW_TITLE constant, 'Liminaldoc', with the document name after an em dash. NOT FIXED, and the likely cause of the 'sometimes very slow' symptom: under a fast resize burst the wgpu surface returns Outdated, lege-gpu reconfigures at its stale stored size, the second acquire fails, and present_scene permanently falls back to the softbuffer presenter (full-window CPU repaint every frame). Instrumented: in a failing run the scene, swapchain configuration and XGetGeometry size all agreed at 708x504 after the burst settled, yet 8 immediate reconfigure-draw-present attempts all returned SurfaceLost. UNTESTED hypothesis: the driver's surface extent lags the X window by some milliseconds, so retries inside that gap all fail; a short sleep between attempts, or a deferred retry driven by about_to_wait, would test it (the sleep experiment was not run). The fallback is permanent for the process and not retried. Whether the original code fell back as often was not measured. No visual flicker or lag measurement was taken at any stage; see the stress evidence for rates.
+        """
+    observed_at git:74677babc582e3f94ab342808abacf526e271729
+    method instrumented
+    watches [ "crates/liminal-reader/src/app.rs", "crates/liminal-reader/src/present/**" ]
+    verified_by [
+        @docwrite.evidence.reader-resize-checks,
+        @docwrite.evidence.reader-resize-x11-stress
+    ]
+    author "dk"
+}
+
 record docwrite.observation.viewer-paging-is-line-continuity/1 : observation {
     title "lege-viewer pages by line continuity and snaps only on command"
     state superseded

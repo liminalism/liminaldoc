@@ -8,7 +8,7 @@ use docwrite_typeset::{Face, GlyphAtlas};
 
 fn face() -> Face {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../pixelkit/crates/pixelkit-text/test-fonts/NotoSans-Regular.ttf");
+        .join("../../../liminalkit/crates/liminalkit-text/test-fonts/NotoSans-Regular.ttf");
     Face::parse(std::fs::read(path).unwrap()).unwrap()
 }
 
@@ -70,4 +70,22 @@ fn faces_and_subpixel_offsets_get_their_own_rasters() {
     assert_eq!(atlas.len(), 1);
     atlas.ensure(&face, glyph, 16.0, 0.5).unwrap();
     assert_eq!(atlas.len(), 2);
+}
+
+#[test]
+fn descender_ink_is_present_below_the_baseline() {
+    let face = face();
+    let mut atlas = GlyphAtlas::new();
+    let glyph = face.shape("g", 48.0, &[]).unwrap()[0].id;
+    atlas
+        .with_glyph(&face, glyph, 48.0, 0.0, |bitmap| {
+            let below =
+                (bitmap.top.max(0) as usize * bitmap.width as usize).min(bitmap.coverage.len());
+            assert!(
+                bitmap.coverage[below..]
+                    .iter()
+                    .any(|&coverage| coverage > 0)
+            );
+        })
+        .unwrap();
 }

@@ -6,7 +6,7 @@
 use crate::error::ModelError;
 use crate::ids::{BlockId, ChapterId};
 use crate::runs::RunMarks;
-use crate::tree::{BlockKind, Book, Chapter, Position};
+use crate::tree::{BlockKind, Book, Position};
 
 /// How a paragraph's lines sit in the measure.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -133,6 +133,13 @@ pub struct ChapterTemplate {
     pub start: ChapterStart,
     /// Print the folio on its opener page.
     pub show_opener_folio: bool,
+    /// Set the chapter's title, from its metadata, as the first paragraph of
+    /// its opener in `title_style`. Off by default: the title then lives in
+    /// the Book Map, contents and running heads only. A chapter whose first
+    /// block is a Chapter Title block never gets a second, duplicate title.
+    /// Pages, PDF, Markdown and IDML all follow this one setting.
+    #[serde(default)]
+    pub show_title: bool,
 }
 
 /// A passage captured from a source PDF.
@@ -241,6 +248,7 @@ impl Stylesheet {
                 first_paragraph_style: "First Paragraph".into(),
                 start: ChapterStart::NextRecto,
                 show_opener_folio: false,
+                show_title: false,
             }],
             sources: Vec::new(),
             bibliography: Vec::new(),
@@ -350,14 +358,15 @@ impl Book {
         {
             return Err(ModelError::Inconsistent("unknown template"));
         }
-        let target = self
-            .parts_mut()
-            .iter_mut()
-            .flat_map(|part| part.chapters_mut().iter_mut())
-            .find(|candidate| candidate.id() == chapter)
-            .ok_or(ModelError::UnknownChapter(chapter))?;
-        target.set_template(template.to_string());
-        Ok(())
+        let old = self.chapter_mut(chapter)?.template().to_string();
+        if old == template {
+            return Ok(());
+        }
+        self.record(crate::edit::Change::SetChapterTemplate {
+            id: chapter,
+            old,
+            new: template.to_string(),
+        })
     }
 
     /// Whether the book sets a table of contents before its first chapter.
@@ -395,33 +404,37 @@ impl Book {
     /// The moved chapter joins the part that owns the destination index.
     /// Every other chapter stays in its part.
     pub fn reorder_chapter(&mut self, from: usize, to: usize) -> Result<(), ModelError> {
-        let count: usize = self.parts().iter().map(|part| part.chapters().len()).sum();
-        if from >= count || to >= count {
+        let mut located: Vec<(usize, ChapterId)> = self
+            .parts()
+            .iter()
+            .enumerate()
+            .flat_map(|(index, part)| part.chapters().iter().map(move |c| (index, c.id())))
+            .collect();
+        if from >= located.len() || to >= located.len() {
             return Err(ModelError::Inconsistent("chapter index"));
         }
-        let mut located: Vec<(usize, Chapter)> = Vec::new();
-        for (part_index, part) in self.parts_mut().iter_mut().enumerate() {
-            for chapter in part.chapters_mut().drain(..) {
-                located.push((part_index, chapter));
-            }
-        }
-        let (mut part_index, chapter) = located.remove(from);
+        let within = |located: &[(usize, ChapterId)], flat: usize| {
+            let part = located[flat].0;
+            (
+                part,
+                located[..flat].iter().filter(|(p, _)| *p == part).count(),
+            )
+        };
+        let from_at = within(&located, from);
+        let (mut part_index, id) = located.remove(from);
         if let Some((dest_part, _)) = located.get(to) {
             part_index = *dest_part;
         }
-        located.insert(to, (part_index, chapter));
-        let part_count = self.parts().len();
-        let mut buckets: Vec<Vec<Chapter>> = (0..part_count).map(|_| Vec::new()).collect();
-        for (part, chapter) in located {
-            if let Some(bucket) = buckets.get_mut(part) {
-                bucket.push(chapter);
-            }
+        located.insert(to, (part_index, id));
+        let to_at = within(&located, to);
+        if from_at == to_at {
+            return Ok(());
         }
-        for (part, chapters) in self.parts_mut().iter_mut().zip(buckets) {
-            *part.chapters_mut() = chapters;
-        }
-        self.reindex();
-        Ok(())
+        self.record(crate::edit::Change::MoveChapter {
+            id,
+            from: from_at,
+            to: to_at,
+        })
     }
 
     /// Keep a source note.
@@ -782,7 +795,6 @@ pub(crate) fn standard_styles() -> Vec<ParagraphStyle> {
         body.clone(),
         ParagraphStyle {
             name: "First Paragraph".into(),
-            first_indent_pt: 0.0,
             drop_cap_lines: 0,
             ..body.clone()
         },

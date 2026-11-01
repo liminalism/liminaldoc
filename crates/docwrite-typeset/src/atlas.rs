@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use pixelkit_raster::{FillRule, RasterKernel};
+use liminalkit_raster::{FillRule, RasterKernel};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::{FontRef, GlyphId, MetadataProvider};

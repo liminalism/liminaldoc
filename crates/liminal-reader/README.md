@@ -153,10 +153,8 @@ pushed the page past the canvas. On the scrollbar, a held track click repeats,
 and shift-click or middle-click centres the thumb under the pointer and keeps
 it there while the button is down. Search editing supports IME composition, selection,
 cut/copy/paste, and replacement. The Options popup contains the
-Original/Night/Warm/Earth/Sea appearance choices. The Process toolbar section
-opens a resizable processing card with explicit Run, Current page, and Profile
-controls; it runs the whole document by default and cancels a running worker
-with Stop.
+Original/Night/Warm/Earth/Sea appearance choices. The toolbar is for reading:
+open, zoom, fit, contents, trim, and appearance.
 
 Startup uses automatic zoom: one resolution-aware step above full-page fit,
 capped by fit-width. It grows and shrinks with the canvas and display scale.

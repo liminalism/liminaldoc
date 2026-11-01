@@ -4,7 +4,7 @@
 //! mode it lands on the next spread. A scroll gesture stays continuous while
 //! it moves and settles on the nearer page, or spread, when it ends.
 
-/// Gesture phase, matching the pixelkit scroll seam.
+/// Gesture phase, matching the liminalkit scroll seam.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     /// A gesture began.

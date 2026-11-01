@@ -298,6 +298,21 @@ record docwrite.work.m7-pdf-links/1 : work {
     part_of [ @docwrite.milestone.m7-open-items ]
 }
 
+record docwrite.work.manuscript-reliability/1 : work {
+    title "Manuscript reliability: durable saves, draft recovery, structural undo"
+    state proposed
+    intent """
+        Make manuscripts trustworthy for long writing: durable, validated bundle writes
+        with asset preservation and last-good-generation fallback; recovery of untitled
+        drafts; structural edits (chapters, parts, sections, templates) as undo
+        transactions; typing-burst undo grouping; a correct IDML package (CRC-32,
+        well-formed designmap); and preflight driven by the selected typefaces.
+        Still open from the review: the real-window M6 acceptance run, inline note
+        anchors, image assets, and the shared command registry.
+        """
+    author "dk"
+}
+
 record docwrite.work.pdf-document-tab/1 : work {
     title "PDF document tab alongside manuscript tabs"
     state proposed

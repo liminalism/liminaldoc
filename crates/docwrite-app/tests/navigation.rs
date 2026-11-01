@@ -77,7 +77,7 @@ fn page_prompt_validates_and_cancels_without_leaving_fullscreen() {
     );
     editor.prompt_type("4");
     assert!(editor.prompt().unwrap().error.is_none());
-    let mut frame = pixelkit_raster::WindowBuffer::new(900, 700);
+    let mut frame = liminalkit_raster::WindowBuffer::new(900, 700);
     editor.paint(&mut frame);
     assert!(editor.is_fullscreen());
     assert!(editor.poll_fullscreen().is_none());

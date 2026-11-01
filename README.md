@@ -14,7 +14,7 @@ cargo run -p liminaldoc -- --writer
 
 Build the whole workspace before running the launcher: it expects `liminaldoc-reader` and `liminaldoc-writer` beside its own executable. `liminaldoc export BOOK.legebook OUTPUT.pdf` delegates to the writer. PDF opens in the reader; `.legebook`, DOCX, ODT, Markdown and text open in the writer. DjVu is reserved for the next reader backend and currently reports that it is unsupported.
 
-The reader keeps its Lege rendering, navigation, search, selection and processing code. The writer keeps editable document tabs, native file dialogs, `.legebook` persistence and PDF/DOCX/Markdown/text output. Opening a PDF from the writer starts a reader window on demand. A shared-window mixed PDF/manuscript tab host is still pending; the separate backends preserve both experiences during the extraction.
+The reader keeps its Lege rendering, navigation, search and selection. It reads documents and does not process them. The writer keeps editable document tabs, native file dialogs, `.legebook` persistence and PDF/DOCX/Markdown/text output. Opening a PDF from the writer starts a reader window on demand. A shared-window mixed PDF/manuscript tab host is still pending; the separate backends preserve both experiences during the extraction.
 
 ## Writing and navigation
 
@@ -45,4 +45,4 @@ leave changes unsaved, and retry at the next interval.
 
 ## Repository dependencies
 
-The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration but are excluded from its Cargo workspace; its `cargo viewer` and `cargo docwrite` aliases point here. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `pixelkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.
+The reader and writer have been copied into their own Git repository. Their original ecosystem copies remain during migration but are excluded from its Cargo workspace; its `cargo viewer` and `cargo docwrite` aliases point here. This repository still uses path dependencies in the sibling `Lege-ecosystem` and `liminalkit` workspaces. A release build must pin those dependencies or vendor the needed crates. The AKR ledger records the shared-window integration and platform menu work.
