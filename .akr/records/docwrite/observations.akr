@@ -406,6 +406,60 @@ record docwrite.observation.reader-clipboard-needs-external-fallback/1 : observa
     author "dk"
 }
 
+record docwrite.observation.reader-frame-sweep-and-open-costs/1 : observation {
+    title "Reader: chrome re-rastered every frame, quadratic outline scan per indexed page, resident pages never indexed, Markdown open single-threaded on the UI thread"
+    state verified
+    statement """
+        Profiling the reader's production pipeline headlessly (examples/reader_bench.rs over a
+        700-page typeset book PDF, a 1000-page synthetic PDF and book-length Markdown; callgrind
+        on the Markdown open; an ignored UI-thread sweep benchmark in app.rs) found, in the
+        working tree atop cdd4efc8:
+
+        1. Every chrome surface (toolbar groups, search field, status line, outline rows) was
+           shaped through cosmic-text and rasterized on every composed frame; the retained
+           surface cache compared a hash of the *output* pixels, so a hit cost the full raster.
+           Scrolling repaints the chrome every frame, so that sat on the input path. The cache
+           now fingerprints the inputs (size, background, rectangles, text paints) and skips the
+           raster on a hit; a test holds unchanged surfaces to the same Arc across frames.
+        2. OutlineSynthesizer::insert filtered the whole page's characters once per line
+           (lines x characters) on the UI thread for every page the background sweep indexed;
+           it was most of what the sweep cost the thread that owns input (about 0.5 ms per page).
+           Characters arrive in text order, so a line's characters are now one bisected slice.
+        3. The conductor's text-index sweep skipped any page resident in its compiled cache, and
+           a page compiled during a jump that ended before it finished has its index and preview
+           needs cleared, so it stayed resident and unindexed: the index never reached the last
+           page, the synthesized contents never appeared, search silently missed it. The sweep
+           now fulfils such pages from the resident artifacts, which costs no worker time.
+        4. Opening Markdown is 93% cosmic-text shaping (shape_paragraph -> shape_until_scroll);
+           a 1 MB, 351-page file took 440 ms on the UI thread before the window existed. Blocks
+           are independent, so layout now runs one block at a time across all cores, placed by
+           index, byte-identical to sequential (test), about 2x on this 4-core sandbox
+           (LIMINALDOC_MD_LAYOUT_THREADS pins the count for experiments). Each shaper (chrome
+           renderer, Markdown layout, every Markdown raster worker) also used to scan the system
+           font directories itself; text::fonts now scans once per process and hands out clones
+           of the face table.
+        5. The launcher opened the document (PDF object tree, Markdown layout) before creating
+           the event loop and window, and a toolbar open froze the previous document for the
+           duration. Opens now run on their own thread and arrive as ViewerEvent::DocumentOpened;
+           the startup document is spawned at the top of `resumed` so it overlaps window and
+           presenter creation, the empty-state hint is not shown while an open is pending, and a
+           stale result from a superseded open is dropped. Headless callers without an event
+           loop still open synchronously.
+        """
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    method instrumented
+    watches [
+        "crates/liminal-reader/src/ui.rs",
+        "crates/liminal-reader/src/text/outline.rs",
+        "crates/liminal-reader/src/text/fonts.rs",
+        "crates/liminal-reader/src/document/conductor.rs",
+        "crates/liminal-reader/src/document/markdown/layout.rs",
+        "crates/liminal-reader/src/main.rs"
+    ]
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "Claude"
+}
+
 record docwrite.observation.reader-open-sniffs-content-first/1 : observation {
     title "Reader open classifies by content before extension"
     state verified
@@ -547,6 +601,52 @@ record docwrite.observation.writer-200-page-exercise/1 : observation {
     ]
     derived_from [ @docwrite.work.writer-200-page-exercise/1 ]
     author "dk"
+}
+
+record docwrite.observation.writer-keystroke-cost-breakdown/1 : observation {
+    title "Writer: a keystroke on a 591-page book rebuilt every paragraph, re-walked the model and re-shaped the chrome; revisions, a style signature and caches bring p50 from 11.7 to 3.1 ms"
+    state verified
+    statement """
+        Typing into a 591-page manuscript (examples/typing_profile.rs, release, 4-core sandbox,
+        per-phase timers in Editor::paint and update_from_book_timed) cost 9.6-11.7 ms per
+        keystroke at cdd4efc8, over the 8 ms budget, split: layout_inputs 3.2 ms, Document::apply
+        2.9 ms, page painting 2.3 ms, chrome 1.1 ms, model edit about 1.6 ms. Causes and fixes:
+
+        - layout_inputs rebuilt every paragraph from the Book on every keystroke: each block's
+          rope copied to a String, two style clones, runs mapped, head cloned, and the paginator
+          then compared and discarded them. Blocks now carry a content revision (bumped by every
+          mutator, excluded from equality and persistence); a paragraph whose block has the
+          revision it was built from is moved over, not rebuilt, and the paginator is told which
+          were kept (apply_with_reuse) instead of comparing. A style signature (Debug of styles,
+          templates and masters) decides once per layout whether styles must be recomposed.
+        - ropey re-measures a one-leaf rope's text on len_bytes, slice and chunk iteration
+          (TextInfo::from_str), so "compare the rope with the old string" cost as much as the
+          copy it replaced; that was the first attempt and is why the revision exists.
+        - Book::check_consistency walked all 4000 blocks and rebuilt the id index after every
+          edit in release; it now runs in debug builds and tests, release checks the selection.
+        - Document::apply rebuilt a 4000-entry id index per keystroke; it keeps by_id when ids
+          and order are unchanged. The id map and the glyph atlas use a small-key hasher.
+        - Chrome labels (toolbar, page counter, running heads, folios, tab strip) were shaped by
+          harfrust on every frame; a bounded LabelCache keeps the shaped glyphs.
+        - paint walked the glyphs of up to five page rows per frame, including rows wholly
+          above or below the window; those are skipped, and the selection spans and caret
+          lookup are computed once per frame rather than per page.
+
+        After: layout_inputs 1.0 ms, apply 0.6 ms, pages 1.4 ms, chrome 0.26 ms; typing p50
+        3.05 ms, p95 4.7 ms (type), backspace p50 3.0 ms, undo p50 3.1 ms. Remaining cost is
+        the glyph blit of the visible page and the still-linear walk over blocks.
+        """
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    method instrumented
+    watches [
+        "crates/docwrite-typeset/src/book.rs",
+        "crates/docwrite-typeset/src/engine.rs",
+        "crates/docwrite-model/src/tree.rs",
+        "crates/docwrite-model/src/edit.rs",
+        "crates/docwrite-app/src/lib.rs"
+    ]
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "Claude"
 }
 
 record docwrite.observation.zz-test/1 : observation {

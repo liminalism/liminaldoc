@@ -73,20 +73,18 @@ pub(crate) struct FootnoteEdit {
 /// it fills, which a session of ordinary editing never reaches.
 #[derive(Debug, Default)]
 pub(crate) struct LabelCache {
-    entries: HashMap<(u64, u32), HashMap<String, Arc<Vec<docwrite_typeset::Glyph>>>>,
+    entries: HashMap<(u64, u32), HashMap<String, ShapedLabel>>,
     count: usize,
 }
+
+/// One shaped label, shared between the cache and the frame drawing it.
+type ShapedLabel = Arc<Vec<docwrite_typeset::Glyph>>;
 
 impl LabelCache {
     const CAPACITY: usize = 2048;
 
     /// `text` shaped in `face` at `size` pixels, plain features.
-    pub(crate) fn shaped(
-        &mut self,
-        face: &Face,
-        text: &str,
-        size: f32,
-    ) -> Arc<Vec<docwrite_typeset::Glyph>> {
+    pub(crate) fn shaped(&mut self, face: &Face, text: &str, size: f32) -> ShapedLabel {
         let size = size.max(1.0);
         let bucket = (face.id(), size.to_bits());
         if let Some(glyphs) = self.entries.get(&bucket).and_then(|texts| texts.get(text)) {
@@ -1125,7 +1123,7 @@ impl Editor {
             let mut pen = start_x;
             for glyph in &line.glyphs {
                 let advance = glyph.x_advance * scale;
-                if span_covers(&selected, line.paragraph, glyph.cluster as usize) {
+                if span_covers(selected, line.paragraph, glyph.cluster as usize) {
                     painter.fill_rect(
                         liminalkit_raster::Rect::new(
                             pen.round() as i32,
