@@ -416,6 +416,9 @@ impl Default for ParagraphStyle {
 pub struct Paragraph {
     /// Block id, or a generated paragraph's marker id.
     pub id: u64,
+    /// The block's content revision this paragraph was built from; zero
+    /// for generated paragraphs. See `docwrite_model::Block::revision`.
+    pub revision: u64,
     /// The text.
     pub text: String,
     /// How it is set.
@@ -429,6 +432,42 @@ pub struct Paragraph {
     pub note_mark: String,
     /// Character styling. Empty means the whole paragraph in its style's face.
     pub runs: Vec<StyledRun>,
+}
+
+impl Paragraph {
+    /// A paragraph that owns nothing: what an unchanged paragraph leaves
+    /// behind when the next layout takes it over. `Paragraph::default()`
+    /// would allocate a style name for each of the thousands of slots.
+    pub(crate) fn placeholder() -> Self {
+        Self {
+            id: 0,
+            revision: 0,
+            text: String::new(),
+            style: ParagraphStyle {
+                table_row: None,
+                hyphenate: false,
+                keep_with_next: false,
+                keep_lines: false,
+                widow_orphan: false,
+                drop_cap_lines: 0,
+                small_caps: false,
+                oldstyle_figures: false,
+                space_before: 0.0,
+                space_after: 0.0,
+                font_size: 0.0,
+                leading: 0.0,
+                first_indent: 0.0,
+                name: String::new(),
+                align: Alignment::Left,
+                left_indent: 0.0,
+                right_indent: 0.0,
+            },
+            note: None,
+            note_is_endnote: false,
+            note_mark: String::new(),
+            runs: Vec::new(),
+        }
+    }
 }
 
 /// The faces of a family, as indices into [`Document::faces`].
@@ -568,7 +607,7 @@ pub(crate) struct LayoutHints {
     pub recto_at: Vec<bool>,
     /// A chapter opener that starts a new page (NextPage or NextRecto).
     pub break_at: Vec<bool>,
-    pub heads: Vec<String>,
+    pub heads: Vec<Arc<str>>,
     pub folio: bool,
     pub hide_opener_folio: bool,
     pub running_head: bool,
@@ -616,7 +655,11 @@ pub struct Document {
     hyphenator: Option<Standard>,
     hints: LayoutHints,
     /// Paragraph index by paragraph id.
-    by_id: HashMap<u64, usize>,
+    by_id: crate::hash::SmallKeyMap<u64, usize>,
+    /// The book's style, template and master definitions as of the last
+    /// layout, so an update can tell "nothing about styles changed" without
+    /// comparing every paragraph's style.
+    pub(crate) style_signature: String,
     /// Page numbers the table of contents shows, by chapter id.
     pub(crate) contents_pages: HashMap<u64, u32>,
 }
@@ -651,7 +694,8 @@ impl Document {
             pages: Vec::new(),
             hyphenator,
             hints,
-            by_id: HashMap::new(),
+            by_id: crate::hash::SmallKeyMap::default(),
+            style_signature: String::new(),
             contents_pages: HashMap::new(),
         };
         doc.index_ids();
@@ -1094,11 +1138,27 @@ impl Document {
     /// whose text, style and note are unchanged keeps its shaped lines, even
     /// if it moved. Pagination restarts one page before the first change and
     /// stops where the old page breaks line up again.
-    pub(crate) fn apply(
+    /// The previous paragraph list and its id index, for a caller that
+    /// wants to hand unchanged paragraphs back through [`Self::apply`]
+    /// without rebuilding them.
+    pub(crate) fn reuse_source(
+        &mut self,
+    ) -> (&mut Vec<Paragraph>, &crate::hash::SmallKeyMap<u64, usize>) {
+        (&mut self.paragraphs, &self.by_id)
+    }
+
+    /// Bring the layout up to date with `paragraphs`, where the caller
+    /// may already know which paragraphs are unchanged: `reused[index]` is
+    /// the old index a paragraph was moved from, or `None` for one that
+    /// was built afresh. With it the old list is not compared paragraph by
+    /// paragraph, and the moved-out slots of the old list hold
+    /// placeholders. Without it (`None`), paragraphs are compared.
+    pub(crate) fn apply_with_reuse(
         &mut self,
         geometry: Geometry,
         paragraphs: Vec<Paragraph>,
         hints: LayoutHints,
+        reused: Option<&[Option<usize>]>,
     ) -> Result<EditReport, TypesetError> {
         let same_geometry = geometry_eq(&self.geometry, &geometry);
         let same_page_rules = self.hints.folio == hints.folio
@@ -1119,21 +1179,19 @@ impl Document {
                 paragraphs_shaped: self.paragraphs.len(),
             });
         }
-        let old_index: HashMap<u64, usize> = self
-            .paragraphs
-            .iter()
-            .enumerate()
-            .map(|(index, paragraph)| (paragraph.id, index))
-            .collect();
+        // The id index describes the old list; it is rebuilt below only
+        // when the ids or their order changed.
+        let old_index = std::mem::take(&mut self.by_id);
         let mut remap = vec![None; self.paragraphs.len()];
         let mut old_lines = std::mem::take(&mut self.lines);
         let old_paragraphs = std::mem::replace(&mut self.paragraphs, paragraphs);
-        if old_paragraphs.len() != self.paragraphs.len()
-            || old_paragraphs
+        let ids_changed = old_paragraphs.len() != self.paragraphs.len()
+            || self
+                .paragraphs
                 .iter()
-                .zip(&self.paragraphs)
-                .any(|(old, new)| old.id != new.id)
-        {
+                .enumerate()
+                .any(|(index, new)| old_index.get(&new.id) != Some(&index));
+        if ids_changed {
             self.index_ids();
         }
         let mut lines = Vec::with_capacity(self.paragraphs.len());
@@ -1151,11 +1209,15 @@ impl Document {
         let mut previous_old: Option<usize> = None;
         let mut previous_new_was_kept = true;
         for index in 0..self.paragraphs.len() {
+            let same_content = |old: &usize| match reused {
+                Some(reused) => reused.get(index).copied().flatten() == Some(*old),
+                None => old_paragraphs.get(*old) == self.paragraphs.get(index),
+            };
             let reuse = old_index
                 .get(&self.paragraphs[index].id)
                 .copied()
                 .filter(|old| {
-                    old_paragraphs.get(*old) == self.paragraphs.get(index)
+                    same_content(old)
                         && self.hints.recto_at.get(*old) == hints.recto_at.get(index)
                         && self.hints.break_at.get(*old) == hints.break_at.get(index)
                         && self.hints.master_at.get(*old) == hints.master_at.get(index)
@@ -1203,6 +1265,13 @@ impl Document {
         }
         self.hints = hints;
         self.lines = lines;
+        if ids_changed {
+            drop(old_index);
+        } else {
+            // Same ids in the same order: the old index still describes
+            // the list.
+            self.by_id = old_index;
+        }
         for index in 0..self.paragraphs.len() {
             if self.lines[index].is_empty() {
                 self.lines[index] = self.shape_paragraph(index)?;
@@ -1286,6 +1355,7 @@ impl Document {
                 before + offset as usize,
                 Paragraph {
                     id: 10_000 + offset as u64,
+                    revision: 0,
                     text: text.to_string(),
                     style: style.clone(),
                     note: None,
@@ -2193,7 +2263,7 @@ impl Document {
 
     fn dress_pages(&mut self) {
         let facing = self.hints.facing;
-        let mut carried = String::new();
+        let mut carried: Arc<str> = Arc::from("");
         let rules: Vec<PageRules> = self
             .pages
             .iter()
@@ -2215,7 +2285,7 @@ impl Document {
                 && let Some(head) = self.hints.heads.get(line.paragraph)
                 && !head.is_empty()
             {
-                carried = head.clone();
+                carried = Arc::clone(head);
             }
             let opener = page.lines.first().is_some_and(|line| {
                 let flag = |flags: &[bool]| flags.get(line.paragraph).copied().unwrap_or(false);
@@ -2225,7 +2295,7 @@ impl Document {
                 page.folio = Some(page_no.to_string());
             }
             if rule.running_head && !carried.is_empty() && !opener {
-                page.running_head = Some(carried.clone());
+                page.running_head = Some(carried.to_string());
             }
         }
     }
@@ -2562,6 +2632,7 @@ pub fn book_of_repeated_line(face: Face, pages: u32, text: &str) -> Result<Docum
     let paragraphs = (0..pages)
         .map(|index| Paragraph {
             id: index as u64 + 1,
+            revision: 0,
             text: text.to_string(),
             style: ParagraphStyle::default(),
             note: None,
@@ -2578,6 +2649,7 @@ pub fn book_of_pages(face: Face, pages: u32, seed: &str) -> Result<Document, Typ
     let paragraphs = (0..pages)
         .map(|index| Paragraph {
             id: index as u64 + 1,
+            revision: 0,
             text: format!("{seed} {index}"),
             style: ParagraphStyle::default(),
             note: None,

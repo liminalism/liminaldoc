@@ -524,10 +524,7 @@ impl Editor {
                     self.theme_now.chrome
                 },
             );
-            let label_w: f32 = face
-                .shape(label, size, &[])
-                .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-                .unwrap_or(0.0);
+            let label_w: f32 = self.labels.width(face, label, size);
             self.paint_label(
                 painter,
                 face,

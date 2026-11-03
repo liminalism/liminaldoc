@@ -16,6 +16,7 @@ fn paras(text: &str) -> Vec<Paragraph> {
     (0..12)
         .map(|index| Paragraph {
             id: index,
+            revision: 0,
             text: format!("{text} {index}"),
             style: ParagraphStyle::default(),
             note: None,

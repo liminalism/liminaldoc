@@ -509,7 +509,7 @@ impl Book {
         }
         self.selection = txn.selection_before;
         self.redo.push(txn);
-        self.check_consistency()
+        self.check_after_edit()
     }
 
     /// Reapply the latest undone transaction.
@@ -525,7 +525,7 @@ impl Book {
         }
         self.selection = txn.selection_after;
         self.undo.push(txn);
-        self.check_consistency()
+        self.check_after_edit()
     }
 
     /// Apply `edit` to the marks of every selected character: one undo step.
@@ -856,7 +856,7 @@ impl Book {
                 typing: false,
             });
         }
-        self.check_consistency()
+        self.check_after_edit()
     }
 
     fn motion_origin(&self, motion: Motion) -> Result<Position, ModelError> {

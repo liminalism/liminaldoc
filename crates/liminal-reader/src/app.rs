@@ -23,7 +23,7 @@ use crate::document::{
     MemoryLease, NavigationMode, OutlineNode, PageIndex, PagePreviewCache, PageStructure,
     TileCache, TileFrameSnapshot, TileTier, ViewportIntent, ViewportPlanner, WarmHint, WarmReason,
 };
-use crate::event::ViewerEvent;
+use crate::event::{DocumentOpened, ViewerEvent};
 use crate::frame::FrameScheduler;
 use crate::geometry::{PointF, RectF, RectI, SizeF, Vec2d};
 use crate::input::{
@@ -98,6 +98,21 @@ struct LinkPeekView {
     target_page: PageIndex,
     target_region: Option<RectF>,
     pointer: PointF,
+}
+
+/// An open in flight on the open thread.
+#[derive(Debug, Clone)]
+struct PendingOpen {
+    request: u64,
+    path: std::path::PathBuf,
+    password: Option<String>,
+    started: Instant,
+    /// The document named on the command line: a failure to open it ends
+    /// the session with an error, as the launcher always did.
+    startup: bool,
+    /// Set once the thread is running; a startup open is recorded before
+    /// the event loop exists and spawned when the window is created.
+    spawned: bool,
 }
 
 /// An encrypted document waiting for its password.
@@ -514,6 +529,10 @@ pub struct ViewerApp {
     hovered_link: Option<LinkHoverState>,
     /// Set while an encrypted document is waiting for its password.
     password_prompt: Option<PasswordPrompt>,
+    /// A document open running on its own thread; the document on screen
+    /// stays until the result arrives.
+    pending_open: Option<PendingOpen>,
+    open_requests: u64,
 
     window: Option<Arc<Window>>,
     presenter: Option<Box<dyn Presenter>>,
@@ -714,6 +733,8 @@ impl ViewerApp {
             pointer_warm: None,
             hovered_link: None,
             password_prompt: None,
+            pending_open: None,
+            open_requests: 0,
             window: None,
             presenter: None,
             presenter_preference,
@@ -3020,13 +3041,114 @@ impl ViewerApp {
 
     /// Open `path`, asking for a password rather than failing when the
     /// document turns out to be encrypted.
+    ///
+    /// With an event loop attached the open runs on its own thread and the
+    /// result arrives as [`ViewerEvent::DocumentOpened`]; the document on
+    /// screen keeps scrolling meanwhile. Headless callers (tests, tools)
+    /// have no loop to deliver to and open synchronously.
     fn open_document_with_password(&mut self, path: &std::path::Path, password: Option<&str>) {
         let started = Instant::now();
-        match open_document_engine(path, password) {
+        if self.event_proxy.is_none() {
+            let result = open_document_engine(path, password);
+            self.finish_open(path, password.is_some(), started, result, false);
+            return;
+        }
+        self.open_requests = self.open_requests.wrapping_add(1).max(1);
+        self.pending_open = Some(PendingOpen {
+            request: self.open_requests,
+            path: path.to_path_buf(),
+            password: password.map(str::to_owned),
+            started,
+            startup: false,
+            spawned: false,
+        });
+        self.spawn_pending_open();
+        self.damage.mark_full();
+        self.request_redraw();
+    }
+
+    /// Record the document named on the command line. It is opened on its
+    /// own thread as soon as the event loop is running, so parsing a large
+    /// PDF or laying out a long Markdown file overlaps window creation and
+    /// presenter setup instead of preceding them.
+    pub fn open_at_startup(&mut self, path: std::path::PathBuf, started: Instant) {
+        self.open_requests = self.open_requests.wrapping_add(1).max(1);
+        self.pending_open = Some(PendingOpen {
+            request: self.open_requests,
+            path,
+            password: None,
+            started,
+            startup: true,
+            spawned: false,
+        });
+    }
+
+    /// Start the thread for a recorded open that has none yet. Without an
+    /// event loop proxy the open runs here instead, so no request is lost.
+    fn spawn_pending_open(&mut self) {
+        let Some(pending) = self.pending_open.as_mut() else {
+            return;
+        };
+        if pending.spawned {
+            return;
+        }
+        pending.spawned = true;
+        let pending = pending.clone();
+        let Some(proxy) = self.event_proxy.clone() else {
+            self.pending_open = None;
+            let result = open_document_engine(&pending.path, pending.password.as_deref());
+            self.finish_open(
+                &pending.path,
+                pending.password.is_some(),
+                pending.started,
+                result,
+                pending.startup,
+            );
+            return;
+        };
+        let spawned = std::thread::Builder::new()
+            .name("liminaldoc-reader-open".to_owned())
+            .spawn(move || {
+                let result = open_document_engine(&pending.path, pending.password.as_deref());
+                let _ = proxy.send_event(ViewerEvent::DocumentOpened(DocumentOpened {
+                    request: pending.request,
+                    path: pending.path,
+                    password_tried: pending.password.is_some(),
+                    started: pending.started,
+                    result,
+                }));
+            });
+        if spawned.is_err()
+            && let Some(pending) = self.pending_open.take()
+        {
+            let result = open_document_engine(&pending.path, pending.password.as_deref());
+            self.finish_open(
+                &pending.path,
+                pending.password.is_some(),
+                pending.started,
+                result,
+                pending.startup,
+            );
+        }
+    }
+
+    /// Adopt, prompt, or report the outcome of an open.
+    fn finish_open(
+        &mut self,
+        path: &std::path::Path,
+        password_tried: bool,
+        started: Instant,
+        result: Result<Arc<dyn DocumentEngine>, DocumentEngineError>,
+        startup: bool,
+    ) {
+        match result {
             Ok(engine) => {
                 self.dismiss_password_prompt();
                 if let Err(error) = self.adopt_engine(engine) {
                     report_document_error(path, &error.to_string());
+                    if startup {
+                        std::process::exit(1);
+                    }
                 } else {
                     self.trace_document_load(started);
                 }
@@ -3041,16 +3163,19 @@ impl ViewerApp {
                 let prompt = self
                     .password_prompt
                     .get_or_insert_with(|| PasswordPrompt::new(path.to_path_buf()));
-                prompt.refused = true;
+                prompt.refused = password_tried;
                 prompt.clear();
-                self.damage.mark_full();
-                self.request_redraw();
             }
             Err(error) => {
                 self.dismiss_password_prompt();
                 report_document_error(path, &error.to_string());
+                if startup {
+                    std::process::exit(1);
+                }
             }
         }
+        self.damage.mark_full();
+        self.request_redraw();
     }
 
     /// Ask for the password of an encrypted document.
@@ -3856,6 +3981,14 @@ impl ViewerApp {
                 .floor();
             status_text.push_str(&format!("   ·   Indexing {percent:.0}%"));
         }
+        if let Some(pending) = &self.pending_open {
+            let name = pending
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            status_text.push_str(&format!("   ·   Opening {name}…"));
+        }
         if let Some(notice) = &self.clipboard_notice {
             status_text.push_str(&format!("   ·   {notice}"));
         }
@@ -4141,6 +4274,11 @@ impl ViewerApp {
         if canvas.width < f64::from(WIDTH) || canvas.height < f64::from(HEIGHT) {
             return;
         }
+        // A document is on its way: an invitation to open one would be
+        // wrong, and would flash for the few frames the open takes.
+        if self.pending_open.is_some() {
+            return;
+        }
         let surface = self.ui_text.render(
             [0x4c45_4745, 10, 0, 0],
             WIDTH,
@@ -4363,6 +4501,9 @@ impl ViewerApp {
 
 impl ApplicationHandler<ViewerEvent> for ViewerApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // The command-line document starts parsing now, on its own thread,
+        // so it overlaps everything below rather than preceding it.
+        self.spawn_pending_open();
         if let Err(error) = self.create_window(event_loop) {
             eprintln!("viewer startup failure: {error}");
             event_loop.exit();
@@ -4382,6 +4523,22 @@ impl ApplicationHandler<ViewerEvent> for ViewerApp {
             }
             ViewerEvent::GpuPrepared(Err(error)) => {
                 eprintln!("GPU preparation failed; keeping softbuffer: {error}");
+            }
+            ViewerEvent::DocumentOpened(opened) => {
+                // A newer open supersedes this result; its engine is dropped.
+                let Some(pending) = self
+                    .pending_open
+                    .take_if(|pending| pending.request == opened.request)
+                else {
+                    return;
+                };
+                self.finish_open(
+                    &opened.path,
+                    opened.password_tried,
+                    opened.started,
+                    opened.result,
+                    pending.startup,
+                );
             }
         }
     }
@@ -5628,6 +5785,106 @@ mod tests {
             "a skipped frame must not trigger surface replacement"
         );
         assert!(!app.present_scene().expect("skipped frame"));
+    }
+
+    /// Drive the UI thread the way a background index sweep does — drain
+    /// every update the conductor publishes, compose a frame whenever the
+    /// drain marked the canvas damaged — and report what the sweep cost the
+    /// thread that owns input. Run it by name with `--ignored --nocapture`.
+    ///
+    /// The numbers are the regression gate's rationale, not the gate: the
+    /// assertions below hold the shape (a sweep that redraws a settled
+    /// canvas once per indexed page is what this measures against), and the
+    /// printed figures are what the ledger records.
+    fn ui_thread_sweep(sidebar: bool) -> (usize, Duration, Duration, u32) {
+        let pages = 400;
+        let mut app = headless_app(Arc::new(SyntheticEngine::new(pages)));
+        app.resize(1280, 900, true);
+        if sidebar {
+            app.toggle_sidebar();
+        }
+        app.publish_intent_if_needed();
+        let mut frames = 0usize;
+        let mut compose_total = Duration::ZERO;
+        let mut compose_max = Duration::ZERO;
+        let mut drain_total = Duration::ZERO;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while app.search_ui.indexed_pages < pages && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+            let drain_started = Instant::now();
+            app.drain_updates();
+            drain_total += drain_started.elapsed();
+            if !app.damage.rects().is_empty() {
+                frames += 1;
+                let started = Instant::now();
+                app.compose().expect("headless compose");
+                let took = started.elapsed();
+                compose_total += took;
+                compose_max = compose_max.max(took);
+            }
+        }
+        eprintln!(
+            "ui-thread sweep sidebar={sidebar}: {} of {pages} pages indexed, {frames} frames composed, compose total {:?} (max {:?}), drain total {:?}",
+            app.search_ui.indexed_pages, compose_total, compose_max, drain_total
+        );
+        (
+            frames,
+            compose_total,
+            drain_total,
+            app.search_ui.indexed_pages,
+        )
+    }
+
+    #[test]
+    #[ignore = "benchmark: prints UI-thread cost of a background index sweep"]
+    fn ui_thread_cost_of_a_background_index_sweep() {
+        ui_thread_sweep(false);
+        ui_thread_sweep(true);
+    }
+
+    /// Chrome that did not change must not be shaped and rasterized again
+    /// just because the canvas was repainted.
+    #[test]
+    fn unchanged_chrome_surfaces_are_retained_between_frames() {
+        let mut app = headless_app(Arc::new(SyntheticEngine::new(3)));
+        app.resize(1280, 900, true);
+        app.publish_intent_if_needed();
+        app.compose().expect("first frame");
+        let first: Vec<_> = app
+            .scene
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                crate::scene::SceneCommand::Surface { surface, .. } => Some(Arc::clone(surface)),
+                _ => None,
+            })
+            .collect();
+        assert!(!first.is_empty(), "the frame draws chrome surfaces");
+        app.damage.mark_full();
+        app.compose().expect("second frame");
+        let second: Vec<_> = app
+            .scene
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                crate::scene::SceneCommand::Surface { surface, .. } => Some(Arc::clone(surface)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(first.len(), second.len());
+        for (a, b) in first.iter().zip(&second) {
+            // The status footer reports cache memory, which the background
+            // workers change between any two frames; every other surface
+            // must be the retained one.
+            if a.key[1] == 4 {
+                continue;
+            }
+            assert!(
+                Arc::ptr_eq(a, b),
+                "surface {:?} was rebuilt although nothing on it changed",
+                a.key
+            );
+        }
     }
 
     fn press_key(app: &mut ViewerApp, text: &str, code: KeyCode) {

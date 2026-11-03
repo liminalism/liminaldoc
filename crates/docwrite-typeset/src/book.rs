@@ -1,8 +1,9 @@
 //! Layout a [`Book`](docwrite_model::Book) with its masters, styles, and notes.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use docwrite_model::{BlockKind, Book, ChapterStart, NoteKind};
+use docwrite_model::{Block, BlockKind, Book, ChapterStart, NoteKind};
 
 use crate::engine::{
     Alignment, Document, EditReport, Face, Geometry, LayoutHints, PageRules, Paragraph,
@@ -26,8 +27,9 @@ pub fn from_book(book: &Book, face: Face) -> Result<Document, TypesetError> {
 /// Paginate `book` with a font family: regular, bold, italic and bold
 /// italic, in that order. Styles the family lacks are set in regular.
 pub fn from_book_with(book: &Book, faces: Vec<Face>) -> Result<Document, TypesetError> {
-    let (geometry, paragraphs, hints) = layout_inputs(book, &HashMap::new());
+    let (geometry, paragraphs, hints, _) = layout_inputs(book, &HashMap::new(), None);
     let mut document = Document::new_with(faces, geometry, paragraphs, hints)?;
+    document.style_signature = style_signature(book);
     settle_contents(&mut document, book)?;
     Ok(document)
 }
@@ -38,9 +40,45 @@ pub fn from_book_with(book: &Book, faces: Vec<Face>) -> Result<Document, Typeset
 /// pagination stops once the page breaks line up with the previous layout.
 /// A change of page master or body size lays out the whole book.
 pub fn update_from_book(document: &mut Document, book: &Book) -> Result<EditReport, TypesetError> {
+    update_from_book_timed(document, book).map(|(report, _)| report)
+}
+
+/// Where an update spent its time, for the editor's frame trace.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UpdateTiming {
+    /// Rebuilding the paragraph list from the book.
+    pub inputs: std::time::Duration,
+    /// Matching, reshaping and repaginating.
+    pub apply: std::time::Duration,
+    /// Settling contents page numbers, when the book has a contents.
+    pub settle: std::time::Duration,
+}
+
+/// [`update_from_book`], reporting where the time went.
+pub fn update_from_book_timed(
+    document: &mut Document,
+    book: &Book,
+) -> Result<(EditReport, UpdateTiming), TypesetError> {
+    let started = std::time::Instant::now();
     let pages = document.contents_pages.clone();
-    let (geometry, paragraphs, hints) = layout_inputs(book, &pages);
-    let mut report = document.apply(geometry, paragraphs, hints)?;
+    let signature = style_signature(book);
+    let styles_unchanged = document.style_signature == signature;
+    document.style_signature = signature;
+    let (paragraphs_before, by_id) = document.reuse_source();
+    let (geometry, paragraphs, hints, reused) = layout_inputs(
+        book,
+        &pages,
+        Some(Previous {
+            paragraphs: paragraphs_before,
+            by_id,
+            styles_unchanged,
+        }),
+    );
+    let inputs = started.elapsed();
+    let started = std::time::Instant::now();
+    let mut report = document.apply_with_reuse(geometry, paragraphs, hints, Some(&reused))?;
+    let apply = started.elapsed();
+    let started = std::time::Instant::now();
     if let Some(more) = settle_contents(document, book)? {
         report.pages_laid_out.extend(more.pages_laid_out);
         report.pages_laid_out.sort_unstable();
@@ -48,7 +86,15 @@ pub fn update_from_book(document: &mut Document, book: &Book) -> Result<EditRepo
         report.paragraphs_shaped += more.paragraphs_shaped;
         report.page_count = more.page_count;
     }
-    Ok(report)
+    let settle = started.elapsed();
+    Ok((
+        report,
+        UpdateTiming {
+            inputs,
+            apply,
+            settle,
+        },
+    ))
 }
 
 /// The Bibliography section's heading is this id; its entries add a number.
@@ -79,8 +125,17 @@ fn settle_contents(
             break;
         }
         document.contents_pages = pages.clone();
-        let (geometry, paragraphs, hints) = layout_inputs(book, &pages);
-        last = Some(document.apply(geometry, paragraphs, hints)?);
+        let (paragraphs_before, by_id) = document.reuse_source();
+        let (geometry, paragraphs, hints, reused) = layout_inputs(
+            book,
+            &pages,
+            Some(Previous {
+                paragraphs: paragraphs_before,
+                by_id,
+                styles_unchanged: true,
+            }),
+        );
+        last = Some(document.apply_with_reuse(geometry, paragraphs, hints, Some(&reused))?);
     }
     Ok(last)
 }
@@ -127,10 +182,49 @@ fn chapter_pages(document: &Document, book: &Book) -> HashMap<u64, u32> {
     pages
 }
 
+/// What an update can hand back unchanged: the previous paragraph list,
+/// which unchanged paragraphs are moved out of (a placeholder stays), its
+/// id index, and whether the book's style definitions are as they were.
+struct Previous<'a> {
+    paragraphs: &'a mut Vec<Paragraph>,
+    by_id: &'a crate::hash::SmallKeyMap<u64, usize>,
+    styles_unchanged: bool,
+}
+
+/// The book's style, template and master definitions, as one string to
+/// compare between layouts. A few dozen short records; cheaper to format
+/// than to compare every paragraph's composed style.
+fn style_signature(book: &Book) -> String {
+    format!(
+        "{:?}|{:?}|{:?}",
+        book.paragraph_styles(),
+        book.chapter_templates(),
+        book.page_masters()
+    )
+}
+
+/// The paginator's inputs for `book`, plus, for each paragraph, the index
+/// in `previous` it was taken from when nothing about it changed.
+///
+/// Typing touches one block, but every keystroke rebuilds this list, and
+/// on a thousand-page manuscript that used to mean copying every block's
+/// text out of its rope and allocating its style, runs and running head
+/// again — a third of the keypress budget spent constructing paragraphs
+/// the paginator was then going to recognise as identical and discard.
+/// Now a block whose text, style, runs and note match its previous
+/// paragraph takes that paragraph over (no copy), and the paginator is
+/// told so instead of comparing.
 fn layout_inputs(
     book: &Book,
     contents_pages: &HashMap<u64, u32>,
-) -> (Geometry, Vec<Paragraph>, LayoutHints) {
+    mut previous: Option<Previous<'_>>,
+) -> (Geometry, Vec<Paragraph>, LayoutHints, Vec<Option<usize>>) {
+    let mut reused: Vec<Option<usize>> = Vec::new();
+    // One model style and its mapped form per style name: every block of
+    // a long book used to clone both from the book's style list again.
+    let mut styles: HashMap<&str, (docwrite_model::ParagraphStyle, ParagraphStyle)> =
+        HashMap::new();
+    let mut scratch = ParagraphStyle::default();
     let template = book
         .chapter_templates()
         .iter()
@@ -206,14 +300,16 @@ fn layout_inputs(
         title.space_after = title.space_after.max(title.leading);
         paragraphs.push(Paragraph {
             id: CONTENTS_ID,
+            revision: 0,
             text: "Contents".into(),
             style: title,
             ..Paragraph::default()
         });
+        reused.push(None);
         recto_at.push(false);
         break_at.push(false);
         master_at.push(default_master);
-        heads.push(String::new());
+        heads.push(Arc::from(""));
         let entry = map_style(&named_style(book, "Contents Entry"));
         for chapter in book.parts().iter().flat_map(|part| part.chapters()) {
             if chapter.title().is_empty() {
@@ -224,14 +320,16 @@ fn layout_inputs(
                 .map_or_else(|| "0".to_string(), u32::to_string);
             paragraphs.push(Paragraph {
                 id: CONTENTS_ID | chapter.id().raw(),
+                revision: 0,
                 text: format!("{}\t{page}", chapter.title()),
                 style: entry.clone(),
                 ..Paragraph::default()
             });
+            reused.push(None);
             recto_at.push(false);
             break_at.push(false);
             master_at.push(default_master);
-            heads.push(String::new());
+            heads.push(Arc::from(""));
         }
     }
     for part in book.parts() {
@@ -246,7 +344,7 @@ fn layout_inputs(
                 .iter()
                 .position(|candidate| candidate.name == chapter.template())
                 .unwrap_or(default_master);
-            let head = chapter.title().to_string();
+            let head: Arc<str> = Arc::from(chapter.title());
             let chapter_start = paragraphs.len();
             let mut first_body = true;
             // The chapter's title is metadata for the Book Map, contents and
@@ -269,17 +367,19 @@ fn layout_inputs(
                 style.space_after = style.space_after.max(style.leading);
                 paragraphs.push(Paragraph {
                     id: CHAPTER_TITLE_ID | chapter.id().raw(),
-                    text: head.clone(),
+                    revision: 0,
+                    text: head.to_string(),
                     style,
                     note: None,
                     note_is_endnote: false,
                     note_mark: String::new(),
                     runs: Vec::new(),
                 });
+                reused.push(None);
                 recto_at.push(false);
                 break_at.push(false);
                 master_at.push(master_index);
-                heads.push(head.clone());
+                heads.push(Arc::clone(&head));
             }
             for section in chapter.sections() {
                 for block in section.blocks() {
@@ -305,61 +405,28 @@ fn layout_inputs(
                             .map(|template| template.body_style.as_str())
                             .unwrap_or("Body"),
                     };
-                    let mut style = map_style(&named_style(book, style_name));
-                    if let Some(align) = block.align() {
-                        style.align = map_align(align);
-                    }
-                    if matches!(block.kind(), BlockKind::Image { .. }) {
-                        style.name = "Image".into();
-                    }
-                    if matches!(block.kind(), BlockKind::Caption) {
-                        style.name = "Caption".into();
-                    }
-                    if let BlockKind::TableCell {
-                        table,
-                        row,
-                        column,
-                        columns,
-                        span,
-                        widths,
-                        ..
-                    } = block.kind()
-                    {
-                        let columns = (*columns).max(1);
-                        let total = widths.iter().map(|w| *w as f32).sum::<f32>().max(1.0);
-                        let fraction = |start: usize, end: usize| -> f32 {
-                            if widths.len() == columns {
-                                widths[start.min(columns)..end.min(columns)]
-                                    .iter()
-                                    .map(|w| *w as f32)
-                                    .sum::<f32>()
-                                    / total
-                            } else {
-                                end.saturating_sub(start) as f32 / columns as f32
-                            }
-                        };
-                        let width = geometry.content_width();
-                        style.table_row = Some((*table, *row));
-                        style.left_indent = fraction(0, *column) * width + 3.0;
-                        style.right_indent =
-                            fraction(column.saturating_add(*span), columns) * width + 3.0;
-                        style.first_indent = 0.0;
-                        style.align = Alignment::Left;
-                        style.space_before = 3.0;
-                        style.space_after = 3.0;
-                        style.widow_orphan = false;
-                        style.keep_with_next = false;
-                    }
+                    let (model_style, base_style) = styles.entry(style_name).or_insert_with(|| {
+                        let model = named_style(book, style_name);
+                        let mapped = map_style(&model);
+                        (model, mapped)
+                    });
+                    let id = block.id().raw();
+                    let is_table = matches!(block.kind(), BlockKind::TableCell { .. });
+                    let effective_name: &str = match block.kind() {
+                        BlockKind::Image { .. } => "Image",
+                        BlockKind::Caption => "Caption",
+                        _ => style_name,
+                    };
                     // Footnotes are numbered through the book and set at the
                     // foot of their page; endnotes are numbered separately and
                     // set in the Notes section after the last chapter.
                     let mut note = None;
                     let mut note_mark = String::new();
-                    if let Some(id) = block.note()
-                        && let Ok(body) = book.note(id)
+                    if let Some(note_id) = block.note()
+                        && let Ok(body) = book.note(note_id)
                     {
                         if body.kind() == NoteKind::Endnote {
-                            endnotes.push((id.raw(), body.text()));
+                            endnotes.push((note_id.raw(), body.text()));
                             note_mark = endnotes.len().to_string();
                         } else {
                             footnote_count += 1;
@@ -367,27 +434,86 @@ fn layout_inputs(
                             note = Some(format!("{footnote_count}\u{2002}{}", body.text()));
                         }
                     }
-                    let mut text = block.text();
-                    if matches!(block.kind(), BlockKind::SceneBreak) && text.trim().is_empty() {
-                        // An empty scene break shows as a centered ornament.
-                        text = "*\u{2003}*\u{2003}*".into();
+                    let ornament = matches!(block.kind(), BlockKind::SceneBreak)
+                        && block.text().trim().is_empty();
+                    // The block's style is composed in `scratch`, whose name
+                    // buffer is reused block after block; it is cloned out
+                    // only for a paragraph that is actually rebuilt. When the
+                    // style definitions are unchanged it is not composed at
+                    // all for a block whose paragraph can be kept: the
+                    // revision stands for everything the block contributes
+                    // and the style name for everything its position does.
+                    let fast = previous.as_ref().is_some_and(|p| p.styles_unchanged) && !is_table;
+                    let mut composed = false;
+                    if !fast {
+                        compose_style(&mut scratch, base_style, block, &geometry);
+                        composed = true;
                     }
-                    let model_style = named_style(book, style_name);
-                    let runs =
-                        styled_runs(&text, block.runs(), model_style.bold, model_style.italic);
-                    paragraphs.push(Paragraph {
-                        id: block.id().raw(),
-                        text,
-                        style,
-                        note,
-                        note_is_endnote: false,
-                        note_mark,
-                        runs,
+                    let kept = previous.as_mut().and_then(|previous| {
+                        let old = *previous.by_id.get(&id)?;
+                        let candidate = previous.paragraphs.get(old)?;
+                        if candidate.id != id || candidate.revision != block.revision() {
+                            return None;
+                        }
+                        debug_assert!(
+                            ornament || block.text_eq(&candidate.text),
+                            "block {id} changed without a new revision"
+                        );
+                        let same = candidate.note == note
+                            && !candidate.note_is_endnote
+                            && candidate.note_mark == note_mark
+                            && if fast {
+                                candidate.style.name == effective_name
+                            } else {
+                                candidate.style == scratch
+                            };
+                        same.then(|| {
+                            (
+                                old,
+                                std::mem::replace(
+                                    &mut previous.paragraphs[old],
+                                    Paragraph::placeholder(),
+                                ),
+                            )
+                        })
                     });
+                    match kept {
+                        Some((old, paragraph)) => {
+                            paragraphs.push(paragraph);
+                            reused.push(Some(old));
+                        }
+                        None => {
+                            if !composed {
+                                compose_style(&mut scratch, base_style, block, &geometry);
+                            }
+                            let mut text = block.text();
+                            if ornament {
+                                // An empty scene break shows as a centered ornament.
+                                text = "*\u{2003}*\u{2003}*".into();
+                            }
+                            let runs = styled_runs(
+                                &text,
+                                block.runs(),
+                                model_style.bold,
+                                model_style.italic,
+                            );
+                            paragraphs.push(Paragraph {
+                                id,
+                                revision: block.revision(),
+                                text,
+                                style: scratch.clone(),
+                                note,
+                                note_is_endnote: false,
+                                note_mark,
+                                runs,
+                            });
+                            reused.push(None);
+                        }
+                    }
                     recto_at.push(false);
                     break_at.push(false);
                     master_at.push(master_index);
-                    heads.push(head.clone());
+                    heads.push(Arc::clone(&head));
                 }
             }
             // Every chapter opens a page; NextRecto also skips to a recto.
@@ -429,6 +555,7 @@ fn layout_inputs(
             }];
             items.push(Paragraph {
                 id: BIBLIOGRAPHY_ID | (number as u64 + 1),
+                revision: 0,
                 text,
                 style: entry.clone(),
                 runs,
@@ -467,6 +594,7 @@ fn layout_inputs(
                 let list: Vec<String> = pages.iter().map(u32::to_string).collect();
                 Paragraph {
                     id: INDEX_ID | (number as u64 + 1),
+                    revision: 0,
                     text: format!("{name}\t{}", list.join(", ")),
                     style: entry.clone(),
                     ..Paragraph::default()
@@ -485,28 +613,32 @@ fn layout_inputs(
         let notes_master = master_at.last().copied().unwrap_or(default_master);
         paragraphs.push(Paragraph {
             id: ENDNOTES_ID,
+            revision: 0,
             text: "Notes".into(),
             style: title,
             ..Paragraph::default()
         });
+        reused.push(None);
         recto_at.push(false);
         break_at.push(true);
         master_at.push(notes_master);
-        heads.push("Notes".into());
+        heads.push(Arc::from("Notes"));
         let mut entry = map_style(&body);
         entry.first_indent = 0.0;
         entry.hyphenate = false;
         for (number, (id, text)) in endnotes.iter().enumerate() {
             paragraphs.push(Paragraph {
                 id: ENDNOTES_ID | id,
+                revision: 0,
                 text: format!("{}. {text}", number + 1),
                 style: entry.clone(),
                 ..Paragraph::default()
             });
+            reused.push(None);
             recto_at.push(false);
             break_at.push(false);
             master_at.push(notes_master);
-            heads.push("Notes".into());
+            heads.push(Arc::from("Notes"));
         }
     }
     for (heading_id, heading, items) in back_matter {
@@ -517,33 +649,38 @@ fn layout_inputs(
         let section_master = master_at.last().copied().unwrap_or(default_master);
         paragraphs.push(Paragraph {
             id: heading_id,
+            revision: 0,
             text: heading.into(),
             style: title,
             ..Paragraph::default()
         });
+        reused.push(None);
         recto_at.push(false);
         break_at.push(true);
         master_at.push(section_master);
-        heads.push(heading.into());
+        heads.push(Arc::from(heading));
         for item in items {
             paragraphs.push(item);
+            reused.push(None);
             recto_at.push(false);
             break_at.push(false);
             master_at.push(section_master);
-            heads.push(heading.into());
+            heads.push(Arc::from(heading));
         }
     }
     if paragraphs.is_empty() {
         paragraphs.push(Paragraph {
             id: u64::MAX,
+            revision: 0,
             text: String::new(),
             style: map_style(&body),
             ..Paragraph::default()
         });
+        reused.push(None);
         recto_at.push(false);
         break_at.push(false);
         master_at.push(default_master);
-        heads.push(String::new());
+        heads.push(Arc::from(""));
     }
     let hints = LayoutHints {
         recto_at,
@@ -556,7 +693,8 @@ fn layout_inputs(
         running_head: master.is_some_and(|master| master.running_head),
         facing: master.is_some_and(|master| master.facing),
     };
-    (geometry, paragraphs, hints)
+    debug_assert_eq!(reused.len(), paragraphs.len());
+    (geometry, paragraphs, hints, reused)
 }
 
 /// The model's runs (character ranges) as byte ranges over `text`, keeping
@@ -651,6 +789,62 @@ fn map_align(align: docwrite_model::Align) -> Alignment {
         docwrite_model::Align::Justify => Alignment::Justify,
         docwrite_model::Align::Center => Alignment::Center,
         docwrite_model::Align::Right => Alignment::Right,
+    }
+}
+
+/// A block's style: its named style, then the block's own alignment, the
+/// kind-derived names, and a table cell's measure.
+fn compose_style(
+    style: &mut ParagraphStyle,
+    base: &ParagraphStyle,
+    block: &Block,
+    geometry: &Geometry,
+) {
+    style.clone_from(base);
+    if let Some(align) = block.align() {
+        style.align = map_align(align);
+    }
+    if matches!(block.kind(), BlockKind::Image { .. }) {
+        style.name.clear();
+        style.name.push_str("Image");
+    }
+    if matches!(block.kind(), BlockKind::Caption) {
+        style.name.clear();
+        style.name.push_str("Caption");
+    }
+    if let BlockKind::TableCell {
+        table,
+        row,
+        column,
+        columns,
+        span,
+        widths,
+        ..
+    } = block.kind()
+    {
+        let columns = (*columns).max(1);
+        let total = widths.iter().map(|w| *w as f32).sum::<f32>().max(1.0);
+        let fraction = |start: usize, end: usize| -> f32 {
+            if widths.len() == columns {
+                widths[start.min(columns)..end.min(columns)]
+                    .iter()
+                    .map(|w| *w as f32)
+                    .sum::<f32>()
+                    / total
+            } else {
+                end.saturating_sub(start) as f32 / columns as f32
+            }
+        };
+        let width = geometry.content_width();
+        style.table_row = Some((*table, *row));
+        style.left_indent = fraction(0, *column) * width + 3.0;
+        style.right_indent = fraction(column.saturating_add(*span), columns) * width + 3.0;
+        style.first_indent = 0.0;
+        style.align = Alignment::Left;
+        style.space_before = 3.0;
+        style.space_after = 3.0;
+        style.widow_orphan = false;
+        style.keep_with_next = false;
     }
 }
 

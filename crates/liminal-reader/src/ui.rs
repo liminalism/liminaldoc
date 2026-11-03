@@ -6,7 +6,6 @@ use arboard::Clipboard;
 use cosmic_text::{
     Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight,
 };
-use pdf_font::StandardFont;
 
 use crate::geometry::RectI;
 use crate::paint::PixelSurface;
@@ -30,34 +29,6 @@ pub struct RectPaint {
     pub color: u32,
 }
 
-/// Register one of pdf-font's embedded base-14 programs and report the family
-/// name it actually landed under.
-///
-/// The name is discovered rather than assumed. This used to be hardcoded as
-/// `"FoxitSans"`, matching the *file* name of the program pdf-font ships
-/// (`fonts/FoxitSans.otf`), but the face inside it declares its family as
-/// `"Chrom Sans OTF"`. `fontdb` matches on the declared family, so the query
-/// never resolved, and every label in the viewer was silently drawn with
-/// whatever system font the fallback chain happened to reach — a different
-/// typeface on every machine, and nothing at all on a host with no fonts
-/// installed. Reading the name back from the database keeps that from
-/// recurring the next time the bundled program is swapped.
-///
-/// `fontdb::Database::load_font_data` returns no id, so the new face is found
-/// by diffing the id set around the load.
-fn register_embedded_family(font_system: &mut FontSystem, font: StandardFont) -> Option<String> {
-    let before: std::collections::HashSet<_> =
-        font_system.db().faces().map(|face| face.id).collect();
-    font_system
-        .db_mut()
-        .load_font_data(font.program_data().to_vec());
-    font_system
-        .db()
-        .faces()
-        .find(|face| !before.contains(&face.id))
-        .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
-}
-
 #[allow(missing_debug_implementations)]
 pub struct UiTextRenderer {
     font_system: FontSystem,
@@ -75,9 +46,8 @@ pub struct UiTextRenderer {
 
 impl UiTextRenderer {
     pub fn new() -> Self {
-        // `FontSystem::new()` scans the system's installed fonts, which costs
-        // roughly 60ms once at startup. That scan is load-bearing and must not
-        // be traded away for an embedded-only database: the fallback lists
+        // The system font scan behind this is load-bearing and must not be
+        // traded away for an embedded-only database: the fallback lists
         // `PlatformFallback` supplies are *family names* ("Noto Sans CJK JP",
         // "DejaVu Sans", "Noto Sans Symbols"…) that are resolved against this
         // same database. The viewer draws PDF outline titles (`app.rs`, from
@@ -85,20 +55,29 @@ impl UiTextRenderer {
         // through this renderer, so it routinely receives CJK, Arabic,
         // Cyrillic and other scripts the embedded Latin face has no glyphs
         // for. With no system faces to fall back to, every one of those
-        // renders as tofu.
-        let mut font_system = FontSystem::new();
-        let regular_family = register_embedded_family(&mut font_system, StandardFont::Helvetica);
-        let bold_family = register_embedded_family(&mut font_system, StandardFont::HelveticaBold);
+        // renders as tofu. The scan itself happens once per process in
+        // `text::fonts`; this is a clone of its face table.
+        let (font_system, families) = crate::text::fonts::font_system();
         Self {
             font_system,
             swash_cache: SwashCache::new(),
-            regular_family,
-            bold_family,
+            regular_family: families.regular,
+            bold_family: families.bold,
             revision: 0,
             surfaces: HashMap::new(),
         }
     }
 
+    /// Rasterize a chrome surface, or return the retained one when nothing
+    /// that goes into it has changed.
+    ///
+    /// The fingerprint is taken over the *inputs* — size, background, the
+    /// rectangles and the text paints — before any pixel is touched. A hit
+    /// therefore costs a hash of a few strings, not a shape, a glyph raster
+    /// and a hash of the whole pixel buffer, which is what every frame used to
+    /// pay for every toolbar group, the status line and the search field
+    /// whether or not anything on them had changed. Scrolling repaints the
+    /// chrome on every frame, so that cost sat directly on the input path.
     pub fn render(
         &mut self,
         key: [u64; 4],
@@ -108,6 +87,37 @@ impl UiTextRenderer {
         rectangles: &[RectPaint],
         text: &[TextPaint],
     ) -> Arc<SceneSurface> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        width.hash(&mut hasher);
+        height.hash(&mut hasher);
+        background.hash(&mut hasher);
+        rectangles.len().hash(&mut hasher);
+        for paint in rectangles {
+            paint.rect.x.hash(&mut hasher);
+            paint.rect.y.hash(&mut hasher);
+            paint.rect.width.hash(&mut hasher);
+            paint.rect.height.hash(&mut hasher);
+            paint.color.hash(&mut hasher);
+        }
+        text.len().hash(&mut hasher);
+        for paint in text {
+            paint.text.hash(&mut hasher);
+            paint.x.hash(&mut hasher);
+            paint.y.hash(&mut hasher);
+            paint.max_width.hash(&mut hasher);
+            paint.size.to_bits().hash(&mut hasher);
+            paint.color.hash(&mut hasher);
+            paint.bold.hash(&mut hasher);
+            paint.centered.hash(&mut hasher);
+        }
+        let fingerprint = hasher.finish();
+        if let Some((cached_fingerprint, surface)) = self.surfaces.get(&key)
+            && *cached_fingerprint == fingerprint
+            && surface.pixels.width == width
+            && surface.pixels.height == height
+        {
+            return Arc::clone(surface);
+        }
         let stride = width as usize;
         let mut pixels = vec![background; stride.saturating_mul(height as usize)];
         for paint in rectangles {
@@ -115,16 +125,6 @@ impl UiTextRenderer {
         }
         for paint in text {
             self.draw_text(&mut pixels, stride, width, height, paint);
-        }
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        width.hash(&mut hasher);
-        height.hash(&mut hasher);
-        pixels.hash(&mut hasher);
-        let fingerprint = hasher.finish();
-        if let Some((cached_fingerprint, surface)) = self.surfaces.get(&key)
-            && *cached_fingerprint == fingerprint
-        {
-            return Arc::clone(surface);
         }
         self.revision = self.revision.wrapping_add(1).max(1);
         let surface = Arc::new(SceneSurface {

@@ -416,10 +416,7 @@ impl Editor {
             }
             None => format!("Pg {}/{}", self.pager.page_top() + 1, self.pager.pages()),
         };
-        let text_width: f32 = face
-            .shape(&status, size, &[])
-            .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-            .unwrap_or(0.0);
+        let text_width: f32 = self.labels.width(face, &status, size);
         self.paint_label(
             painter,
             face,

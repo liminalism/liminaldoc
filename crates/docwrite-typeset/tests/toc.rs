@@ -15,6 +15,7 @@ fn face() -> Face {
 fn title(id: u64, text: &str) -> Paragraph {
     Paragraph {
         id,
+        revision: 0,
         text: text.into(),
         style: ParagraphStyle {
             name: "Chapter Title".into(),
@@ -30,6 +31,7 @@ fn title(id: u64, text: &str) -> Paragraph {
 fn body(id: u64) -> Paragraph {
     Paragraph {
         id,
+        revision: 0,
         text: format!("Paragraph {id}"),
         style: ParagraphStyle::default(),
         note: None,

@@ -10,8 +10,6 @@ use liminaldoc_reader::ViewerApp;
 use liminaldoc_reader::cli::{LaunchMode, USAGE, parse_launch_config};
 use liminaldoc_reader::document::empty::EmptyEngine;
 use liminaldoc_reader::document::engine::DocumentEngine;
-#[cfg(feature = "pdf-engine")]
-use liminaldoc_reader::document::engine::DocumentEngineError;
 use liminaldoc_reader::document::session::{UpdateQueue, WakeSink};
 use liminaldoc_reader::document::synthetic::SyntheticEngine;
 use liminaldoc_reader::event::ViewerEvent;
@@ -52,26 +50,26 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let updates = UpdateQueue::new(4096, wake);
 
-    let startup = match open_engine(config.mode) {
-        Ok(startup) => startup,
-        Err(error) => {
-            report_startup_error(&error.to_string());
-            std::process::exit(1);
+    // Named documents open on their own thread once the loop runs: parsing
+    // a large PDF or laying out a long Markdown file overlaps window and
+    // presenter creation instead of delaying the first frame. The viewer
+    // starts on the empty engine and adopts the document when it arrives;
+    // an encrypted one reaches the password prompt the same way.
+    let (engine, document): (Arc<dyn DocumentEngine>, Option<std::path::PathBuf>) = match config
+        .mode
+    {
+        LaunchMode::Synthetic { page_count } => (Arc::new(SyntheticEngine::new(page_count)), None),
+        LaunchMode::Pdf(path) | LaunchMode::Markdown(path) => {
+            (Arc::new(EmptyEngine::new()), Some(path))
         }
-    };
-    // A document named on the command line that turns out to be encrypted
-    // must reach the viewer's password prompt, not a fatal error: exiting here
-    // is exactly the command-line workaround the prompt exists to remove.
-    let (engine, locked): (Arc<dyn DocumentEngine>, Option<std::path::PathBuf>) = match startup {
-        Startup::Ready(engine) => (engine, None),
-        Startup::NeedsPassword(path) => (Arc::new(EmptyEngine::new()), Some(path)),
+        LaunchMode::Empty | LaunchMode::Help => (Arc::new(EmptyEngine::new()), None),
     };
     let mut app = ViewerApp::new_with_presenter(engine, updates, config.presenter)?;
     app.trace_document_load(load_started);
-    if let Some(path) = locked {
-        app.begin_password_prompt(path);
-    }
     app.set_event_proxy(event_loop.create_proxy());
+    if let Some(path) = document {
+        app.open_at_startup(path, load_started);
+    }
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -85,52 +83,4 @@ fn report_startup_error(message: &str) {
         .set_title("Liminaldoc")
         .set_description(message)
         .show();
-}
-
-/// What the launch arguments produced: a document, or a locked one the viewer
-/// has to ask about once its window is up.
-#[derive(Debug)]
-enum Startup {
-    Ready(Arc<dyn DocumentEngine>),
-    NeedsPassword(std::path::PathBuf),
-}
-
-fn open_engine(mode: LaunchMode) -> Result<Startup, Box<dyn std::error::Error>> {
-    match mode {
-        LaunchMode::Empty => Ok(Startup::Ready(Arc::new(EmptyEngine::new()))),
-        LaunchMode::Synthetic { page_count } => {
-            Ok(Startup::Ready(Arc::new(SyntheticEngine::new(page_count))))
-        }
-        LaunchMode::Pdf(path) => {
-            #[cfg(feature = "pdf-engine")]
-            {
-                match liminaldoc_reader::document::pdf_engine::PdfEngine::open(&path, None) {
-                    Ok(engine) => Ok(Startup::Ready(Arc::new(engine))),
-                    Err(DocumentEngineError::PasswordRequired) => Ok(Startup::NeedsPassword(path)),
-                    Err(error) => {
-                        Err(std::io::Error::other(format!("failed to open PDF: {error}")).into())
-                    }
-                }
-            }
-            #[cfg(not(feature = "pdf-engine"))]
-            {
-                let _ = path;
-                Err(std::io::Error::other(
-                    "this build does not include the PDF engine; use --synthetic",
-                )
-                .into())
-            }
-        }
-        LaunchMode::Markdown(path) => {
-            match liminaldoc_reader::document::markdown::MarkdownEngine::open(&path) {
-                Ok(engine) => Ok(Startup::Ready(Arc::new(engine))),
-                Err(error) => {
-                    Err(std::io::Error::other(format!("failed to open Markdown: {error}")).into())
-                }
-            }
-        }
-        LaunchMode::Help => {
-            Err(std::io::Error::other("help mode does not create a document engine").into())
-        }
-    }
 }

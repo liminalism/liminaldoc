@@ -30,6 +30,14 @@ name = "pdf_startup_profile"
 path = "examples/pdf_startup_profile.rs"
 required-features = ["pdf-engine"]
 
+[[example]]
+name = "reader_bench"
+path = "examples/reader_bench.rs"
+
+[[example]]
+name = "md_open_profile"
+path = "examples/md_open_profile.rs"
+
 [features]
 default = ["wgpu-presenter", "softbuffer-presenter", "pdf-engine"]
 softbuffer-presenter = ["dep:softbuffer"]
