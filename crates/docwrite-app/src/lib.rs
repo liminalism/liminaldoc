@@ -17,6 +17,7 @@ mod toolbar;
 mod trace;
 mod view;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -38,7 +39,8 @@ pub use view::{NIGHT, PAPER, PointerShape, SANZO_EARTH, SANZO_SEA, Theme, WARM, 
 
 use docwrite_model::{Book, Direction, Motion, NoteId, Position, Selection};
 use docwrite_typeset::{
-    Document, EditReport, Face, GlyphAtlas, NOTE_MARK_CLUSTER, from_book_with, update_from_book,
+    Document, EditReport, Face, GlyphAtlas, NOTE_MARK_CLUSTER, UpdateTiming, from_book_with,
+    update_from_book_timed,
 };
 use map::BookMap as Map;
 
@@ -59,6 +61,70 @@ pub(crate) struct FootnoteEdit {
     pub anchor: Selection,
     /// Caret position in the note's body, in characters.
     pub cursor: usize,
+}
+
+/// Shaped chrome labels, by face, size and text.
+///
+/// The toolbar, page counter, running heads, folios, map rows and tab
+/// strip are shaped through harfrust on every frame they are painted, and
+/// every keystroke paints a frame. None of that text changes from one key
+/// to the next, so the shaped glyphs are kept: a label costs a hash lookup
+/// after its first frame. The cache is bounded and simply starts over when
+/// it fills, which a session of ordinary editing never reaches.
+#[derive(Debug, Default)]
+pub(crate) struct LabelCache {
+    entries: HashMap<(u64, u32), HashMap<String, ShapedLabel>>,
+    count: usize,
+}
+
+/// One shaped label, shared between the cache and the frame drawing it.
+type ShapedLabel = Arc<Vec<docwrite_typeset::Glyph>>;
+
+impl LabelCache {
+    const CAPACITY: usize = 2048;
+
+    /// `text` shaped in `face` at `size` pixels, plain features.
+    pub(crate) fn shaped(&mut self, face: &Face, text: &str, size: f32) -> ShapedLabel {
+        let size = size.max(1.0);
+        let bucket = (face.id(), size.to_bits());
+        if let Some(glyphs) = self.entries.get(&bucket).and_then(|texts| texts.get(text)) {
+            return Arc::clone(glyphs);
+        }
+        if self.count >= Self::CAPACITY {
+            self.entries.clear();
+            self.count = 0;
+        }
+        let glyphs = Arc::new(face.shape(text, size, &[]).unwrap_or_default());
+        self.entries
+            .entry(bucket)
+            .or_default()
+            .insert(text.to_owned(), Arc::clone(&glyphs));
+        self.count += 1;
+        glyphs
+    }
+
+    /// Advance width of `text` in `face` at `size` pixels.
+    pub(crate) fn width(&mut self, face: &Face, text: &str, size: f32) -> f32 {
+        self.shaped(face, text, size)
+            .iter()
+            .map(|glyph| glyph.x_advance)
+            .sum()
+    }
+}
+
+/// Where one painted frame spent its time. Zero for phases that did not run.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FramePhases {
+    /// The whole layout refresh, incremental update included.
+    pub layout: Duration,
+    /// The incremental update's own breakdown.
+    pub update: UpdateTiming,
+    /// Painting the visible pages.
+    pub pages: Duration,
+    /// Painting the toolbar, map, scrollbar and menus.
+    pub chrome: Duration,
+    /// The whole paint.
+    pub total: Duration,
 }
 
 /// Caret rectangle in window pixels, for the IME candidate window.
@@ -93,6 +159,10 @@ pub struct Editor {
     last_layout: Option<EditReport>,
     layout_generation: u64,
     atlas: GlyphAtlas,
+    /// Shaped chrome labels.
+    pub(crate) labels: LabelCache,
+    /// Where the last frame spent its time.
+    phases: FramePhases,
     preedit: String,
     caret: Option<CaretRect>,
     /// A soft line end shares a text position with the next line's start.
@@ -194,6 +264,8 @@ impl Editor {
             last_layout: None,
             layout_generation: 0,
             atlas: GlyphAtlas::new(),
+            labels: LabelCache::default(),
+            phases: FramePhases::default(),
             preedit: String::new(),
             caret: None,
             line_end: None,
@@ -493,6 +565,7 @@ impl Editor {
             return;
         };
         let atlas = &mut self.atlas;
+        let labels_cache = &mut self.labels;
         let ink = self.theme_now.chrome_ink;
         let size = 11.0 * self.ui_scale;
         let baseline = top + (14.0 * self.ui_scale) as i32;
@@ -521,6 +594,7 @@ impl Editor {
             ));
             paint_tab_label(
                 atlas,
+                labels_cache,
                 &mut painter,
                 face,
                 &shown,
@@ -536,7 +610,10 @@ impl Editor {
     /// Draw the desk, the page stack, and the manuscript on those pages.
     pub fn paint(&mut self, buffer: &mut liminalkit_raster::WindowBuffer) {
         // Layout first: it can move the view to follow the caret.
+        let frame_started = Instant::now();
         self.refresh_layout();
+        self.phases.layout = frame_started.elapsed();
+        let pages_started = Instant::now();
         self.caret = None;
         self.caret_status = None;
         self.slots.clear();
@@ -640,6 +717,14 @@ impl Editor {
         }
         self.drag_text();
         let document = self.document.take();
+        // Selection and caret are the same for every page of the frame.
+        let selected = document
+            .as_ref()
+            .map(|document| selected_spans(&self.book, document))
+            .unwrap_or_default();
+        let focus = document
+            .as_ref()
+            .and_then(|document| focus_mark(&self.book, document));
         self.pages_painted = document.as_ref().map(|laid| laid.page_count()).unwrap_or(0);
         let last_page = if document.is_some() {
             self.pages_painted as i32
@@ -658,6 +743,11 @@ impl Editor {
                 continue;
             }
             let top = origin + slot * (page_h + gap);
+            // A row entirely above or below the window has nothing to show;
+            // painting it would still walk every glyph of its pages.
+            if top + page_h + gap <= bar || top >= height {
+                continue;
+            }
             let row_left = content_left + (content_w - page_w * per_row) / 2;
             if self.fullscreen {
                 painter.fill_rect(
@@ -688,6 +778,8 @@ impl Editor {
                         top,
                         page_w,
                         page_h,
+                        &selected,
+                        focus,
                     );
                 }
             }
@@ -702,6 +794,8 @@ impl Editor {
         if status_h > 0 {
             painter.pop_clip();
         }
+        self.phases.pages = pages_started.elapsed();
+        let chrome_started = Instant::now();
         let face = document.as_ref().map(|document| document.face());
         if self.fullscreen {
             if let Some(face) = face {
@@ -729,6 +823,13 @@ impl Editor {
             self.paint_file_menu(&mut painter, face);
         }
         self.document = document;
+        self.phases.chrome = chrome_started.elapsed();
+        self.phases.total = frame_started.elapsed();
+    }
+
+    /// Where the most recent [`Self::paint`] spent its time.
+    pub fn last_frame_phases(&self) -> FramePhases {
+        self.phases
     }
 
     /// Load the current family when no faces are held yet. Layout and
@@ -790,7 +891,14 @@ impl Editor {
         }
         self.layout_generation += 1;
         let report = match self.document.as_mut() {
-            Some(document) => update_from_book(document, &self.book).ok(),
+            Some(document) => {
+                update_from_book_timed(document, &self.book)
+                    .ok()
+                    .map(|(report, timing)| {
+                        self.phases.update = timing;
+                        report
+                    })
+            }
             None => None,
         };
         let report = match report {
@@ -944,6 +1052,8 @@ impl Editor {
         top: i32,
         page_w: i32,
         page_h: i32,
+        selected: &[(usize, usize, usize)],
+        focus: Option<(usize, usize)>,
     ) {
         if page == 0 || page > document.page_count() {
             return;
@@ -974,8 +1084,6 @@ impl Editor {
             );
         }
         let lines = document.page_painted_lines(page);
-        let selected = selected_spans(&self.book, document);
-        let focus = focus_mark(&self.book, document);
         let inset = document.page_content_inset(page);
         let mut caret_x = left + (inset * scale) as i32;
         let mut caret_y = top + geometry.margin_top as i32;
@@ -1015,7 +1123,7 @@ impl Editor {
             let mut pen = start_x;
             for glyph in &line.glyphs {
                 let advance = glyph.x_advance * scale;
-                if span_covers(&selected, line.paragraph, glyph.cluster as usize) {
+                if span_covers(selected, line.paragraph, glyph.cluster as usize) {
                     painter.fill_rect(
                         liminalkit_raster::Rect::new(
                             pen.round() as i32,
@@ -1212,11 +1320,9 @@ impl Editor {
         size: f32,
         color: u32,
     ) {
-        let Ok(glyphs) = face.shape(text, size.max(1.0), &[]) else {
-            return;
-        };
+        let glyphs = self.labels.shaped(face, text, size);
         let mut pen = x;
-        for glyph in glyphs {
+        for glyph in glyphs.iter() {
             draw_glyph(
                 &mut self.atlas,
                 painter,
@@ -1385,8 +1491,10 @@ fn draw_glyph(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_tab_label(
     atlas: &mut GlyphAtlas,
+    labels: &mut LabelCache,
     painter: &mut liminalkit_raster::Painter<'_>,
     face: &Face,
     text: &str,
@@ -1395,11 +1503,9 @@ fn paint_tab_label(
     size: f32,
     color: u32,
 ) {
-    let Ok(glyphs) = face.shape(text, size, &[]) else {
-        return;
-    };
+    let glyphs = labels.shaped(face, text, size);
     let mut pen = x;
-    for glyph in glyphs {
+    for glyph in glyphs.iter() {
         draw_glyph(
             atlas, painter, face, glyph.id, size, pen as f32, baseline, color,
         );

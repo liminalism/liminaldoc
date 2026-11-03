@@ -221,8 +221,8 @@ impl std::fmt::Debug for MarkdownRasterWorker {
     }
 }
 
-/// Per-worker shaping context. One font-system scan per raster thread, mirroring
-/// the chrome renderer's documented cost.
+/// Per-worker shaping context over the shared font database (one scan per
+/// process, see `text::fonts`), with the worker's own glyph caches.
 struct RasterFonts {
     font_system: cosmic_text::FontSystem,
     swash: SwashCache,
@@ -233,25 +233,13 @@ struct RasterFonts {
 
 impl RasterFonts {
     fn new() -> Self {
-        let mut font_system = cosmic_text::FontSystem::new();
-        let regular = super::layout::register_embedded_family(
-            &mut font_system,
-            pdf_font::StandardFont::Helvetica,
-        );
-        let bold = super::layout::register_embedded_family(
-            &mut font_system,
-            pdf_font::StandardFont::HelveticaBold,
-        );
-        let mono = super::layout::register_embedded_family(
-            &mut font_system,
-            pdf_font::StandardFont::Courier,
-        );
+        let (font_system, families) = crate::text::fonts::font_system();
         Self {
             font_system,
             swash: SwashCache::new(),
-            regular,
-            bold,
-            mono,
+            regular: families.regular,
+            bold: families.bold,
+            mono: families.mono,
         }
     }
 }

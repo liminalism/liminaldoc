@@ -5,7 +5,7 @@ build {
     tool "akr 0.6.1"
     grammar "0.1"
     vocabulary "0.2"
-    source_graph "sha256:226592e15fbcd9874835ba78065951284b91083a3f073c1c456982a4bcde457d"
+    source_graph "sha256:b8ec5fead34f300bed2218bcaf6eeeae56c239fcabbf3f045de31ff8e2383be8"
 }
 
 source ".akr/project.akr" {
@@ -19,8 +19,8 @@ source ".akr/records/docwrite/decisions.akr" {
 }
 
 source ".akr/records/docwrite/evidence.akr" {
-    hash "sha256:4370547d84020e3a4ff0ff29220e28136906769f4c267abc0665c14d288d6052"
-    records 76
+    hash "sha256:548f79d569e6f6b3ab1295cc1a12be3ed8b9b915e194d220586f432bccd92907"
+    records 80
 }
 
 source ".akr/records/docwrite/milestones.akr" {
@@ -29,13 +29,13 @@ source ".akr/records/docwrite/milestones.akr" {
 }
 
 source ".akr/records/docwrite/observations.akr" {
-    hash "sha256:bde70159b05b3b7b7be923f28b7371b6ff56ec33ce170abc35c50794c168b760"
-    records 31
+    hash "sha256:9725de2c9ca6f702fb05ecb1b14d711e4e63c6eb4e038b1ed85ebc6123e68866"
+    records 33
 }
 
 source ".akr/records/docwrite/papercuts.akr" {
-    hash "sha256:59a770838df4b45a6203b60ceca38a88171830a0780ce8763c49bc02fbb429f6"
-    records 41
+    hash "sha256:2b88f5f0dc7ab458082b50639755860fbdc6bf923e40e012214521882163e4a4"
+    records 44
 }
 
 source ".akr/records/docwrite/requirements.akr" {
@@ -44,8 +44,8 @@ source ".akr/records/docwrite/requirements.akr" {
 }
 
 source ".akr/records/docwrite/work.akr" {
-    hash "sha256:e284fd5067b2b7d20308885cee31a94aef47703cb7880f00c32f64bf8724b615"
-    records 35
+    hash "sha256:9233ee58a016555832c5713a82639552133aff7a65ea22b3250a3f3be6a99c4f"
+    records 36
 }
 
 source ".akr/records/lege/work.akr" {
@@ -981,9 +981,29 @@ seal @docwrite.evidence.release-app-icons/1 {
     hash "sha256:d6dcd3af797de865cc1ea3315d7e2a4b8934abf857f9d9504844e7d9a6db221e"
 }
 
+seal @docwrite.evidence.responsiveness-correctness/1 {
+    state verified
+    hash "sha256:d1a254638ab5ab21f9297e1a77366568c5db385d2320bb07245b4099c7a2ec89"
+}
+
+seal @docwrite.evidence.responsiveness-reader-benchmarks/1 {
+    state verified
+    hash "sha256:50e5349c59ec1c56dac4188eb80bccfaf3ab39225b4b9c85305fc9ec1c4fe474"
+}
+
+seal @docwrite.evidence.responsiveness-reader-improvements/1 {
+    state verified
+    hash "sha256:4a1693d6bea49241da79863ad7ae7c1edd519d14eedf7be636669d0fd6e9989a"
+}
+
 seal @docwrite.evidence.responsiveness-renders/1 {
     state verified
     hash "sha256:8f53da0b05513aaf900d396c2cd5a83369a97b921bd87de41bf42e5739e9d046"
+}
+
+seal @docwrite.evidence.responsiveness-writer-typing/1 {
+    state verified
+    hash "sha256:72668005ee674442212b8670bee30f688b2ce5931fd6abd33008423414d28808"
 }
 
 seal @docwrite.evidence.selection-highlight/1 {
@@ -1241,6 +1261,11 @@ seal @docwrite.observation.reader-clipboard-needs-external-fallback/1 {
     hash "sha256:287673a74260e9b03a97ab0f322e15bc20e946858ab302033668eea82c96513b"
 }
 
+seal @docwrite.observation.reader-frame-sweep-and-open-costs/1 {
+    state verified
+    hash "sha256:24ac902c6f2887e390cb3836c3267eb83e47a5dfda0d8e45d001e939c79012fd"
+}
+
 seal @docwrite.observation.reader-open-sniffs-content-first/1 {
     state verified
     hash "sha256:786910fb957973b3f8bf80a5f5b44bbd1db0825387a9c1730448d361eb68f1ba"
@@ -1269,6 +1294,11 @@ seal @docwrite.observation.viewer-paging-is-line-continuity/3 {
 seal @docwrite.observation.writer-200-page-exercise/1 {
     state verified
     hash "sha256:b719e1e76540b36d74ea83b14f329c1be70e4be1fc77b135213248535f26356e"
+}
+
+seal @docwrite.observation.writer-keystroke-cost-breakdown/1 {
+    state verified
+    hash "sha256:2fecb725530d242e257e3b81e2b22c33998f326668ad85da6142a7e8256c38d9"
 }
 
 seal @docwrite.observation.zz-test/1 {
@@ -1336,6 +1366,11 @@ seal @docwrite.papercut.akr-propose-rejected-repeated-implements/1 {
     hash "sha256:bc99281099846358104017f3af1a23fc16571cc894fe13959dcdf933676db88c"
 }
 
+seal @docwrite.papercut.building-liminaldoc-from-a-fresh-checkout-fails/1 {
+    state verified
+    hash "sha256:00592b82d412695935e370930fd87946e45eee83c97bc40459f2a55a7ffebc26"
+}
+
 seal @docwrite.papercut.cargo-fmt-all-traverses-sibling-path/1 {
     state verified
     hash "sha256:d6b687521e8efbd87da688a4e20c99b65c1d0f9e2d5ab4b464108ee7e2fab674"
@@ -1351,9 +1386,19 @@ seal @docwrite.papercut.cargo-fmt-p-docwrite-app-also-reformatted-pre/1 {
     hash "sha256:5d951208ff781b6d852ec1eda19f514fb384225493f4a26920436aceaa6c8255"
 }
 
+seal @docwrite.papercut.cargo-test-release-p-docwrite-app-test-latency/1 {
+    state verified
+    hash "sha256:1a54eca88df52a535b41531d25a1baaf2800829ea838b14215e9d2f0df028b91"
+}
+
 seal @docwrite.papercut.compacting-writer-chrome-exposed-tests-tied-to/1 {
     state verified
     hash "sha256:0988dc2b57e655dd46b48b0848d5c5e1539573cfb6a7a43c8b54685b9f633e9f"
+}
+
+seal @docwrite.papercut.crates-docwrite-app-tests-latency-gate-rs/1 {
+    state verified
+    hash "sha256:511def59c8f2d5f3338c7a2e68bc25fb64e673323fc06ba599c25a6bd5ad6ae9"
 }
 
 seal @docwrite.papercut.extracted-reader-initially-inherited-the-writer/1 {
@@ -1574,6 +1619,11 @@ seal @docwrite.work.pdf-selection-copy/1 {
 seal @docwrite.work.pdf-startup-latency/1 {
     state completed
     hash "sha256:be6fab6b1ca53b899778459a90b5eb288e309b2c266ed06d9d4410b0373e5da8"
+}
+
+seal @docwrite.work.reader-writer-responsiveness/1 {
+    state completed
+    hash "sha256:d496520a1cd917155d514f2d4bb57fa4912baa6dce7994ffcfe96ab46f5d695a"
 }
 
 seal @docwrite.work.writer-200-page-exercise/1 {

@@ -22,6 +22,15 @@ pub struct OutlineSynthesizer {
 impl OutlineSynthesizer {
     pub fn insert(&mut self, page: PageIndex, substrate: &TextSubstrate) {
         let mut candidates = Vec::new();
+        // Characters arrive in text order from every engine, so a line's
+        // characters are one contiguous slice found by bisection. This runs
+        // on the UI thread for every page the background sweep indexes;
+        // filtering the whole page per line made a 60-line page cost sixty
+        // passes over its characters, which was most of what the sweep cost
+        // the thread that owns input.
+        let sorted = substrate
+            .characters
+            .is_sorted_by_key(|character| character.char_index);
         for line in substrate.lines.lines.iter() {
             let start = line.char_range.0.min(substrate.utf16.len());
             let end = line.char_range.1.min(substrate.utf16.len());
@@ -32,11 +41,21 @@ impl OutlineSynthesizer {
             if title.is_empty() || title.chars().count() > 120 {
                 continue;
             }
-            let characters: Vec<_> = substrate
-                .characters
-                .iter()
-                .filter(|character| (start..end).contains(&character.char_index))
-                .collect();
+            let characters: Vec<_> = if sorted {
+                let first = substrate
+                    .characters
+                    .partition_point(|character| character.char_index < start);
+                let last = substrate
+                    .characters
+                    .partition_point(|character| character.char_index < end);
+                substrate.characters[first..last].iter().collect()
+            } else {
+                substrate
+                    .characters
+                    .iter()
+                    .filter(|character| (start..end).contains(&character.char_index))
+                    .collect()
+            };
             if characters.is_empty() {
                 continue;
             }

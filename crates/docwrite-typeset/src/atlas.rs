@@ -1,8 +1,6 @@
 //! Per-glyph coverage cache. Editing looks up a glyph; it does not rasterize
 //! the paragraph again.
 
-use std::collections::HashMap;
-
 use liminalkit_raster::{FillRule, RasterKernel};
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
@@ -55,7 +53,7 @@ struct Entry {
 /// Glyph atlas owned by docwrite, keyed so a keystroke reuses rasters.
 #[derive(Debug, Default)]
 pub struct GlyphAtlas {
-    entries: HashMap<AtlasKey, Entry>,
+    entries: crate::hash::SmallKeyMap<AtlasKey, Entry>,
 }
 
 impl GlyphAtlas {

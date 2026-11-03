@@ -399,6 +399,65 @@ record docwrite.work.pdf-startup-latency/1 : work {
     author "dk"
 }
 
+record docwrite.work.reader-writer-responsiveness/1 : work {
+    title "Reader interaction pipeline and writer keystroke path on long documents"
+    state completed
+    intent """
+        Make the reader and the writer disappear from attention on long documents:
+        profile the reader's complete interaction pipeline (cold open, first readable
+        page, PDF and Markdown loading, page turns, seeks, zoom, search, document
+        switch) and the writer's keystroke path on manuscripts of several hundred to
+        a thousand pages, establish reproducible headless benchmarks, and remove the
+        avoidable work found, preferring targeted changes with measured benefit to
+        rewrites. Reader stays read-only; the minimalist interface and the separate
+        reader and writer processes stay.
+        """
+    acceptance {
+        check correctness {
+            statement """
+                Reader and writer test suites and workspace clippy pass; Markdown layout
+                is byte-identical whatever the thread count; unchanged chrome surfaces are
+                retained between frames; a resident page always reaches the index.
+                """
+            method command
+            command "cargo test --release -p liminaldoc-reader; cargo test -p docwrite-model -p docwrite-typeset -p docwrite-app -p docwrite-export; cargo clippy --workspace --all-targets"
+            verified_by [ @docwrite.evidence.responsiveness-correctness/1 ]
+        }
+        check reader-benchmarks {
+            statement """
+                A reproducible headless reader benchmark drives the production engine,
+                layout, conductor and caches over a generated corpus (typeset book PDF,
+                synthetic PDFs, book-length Markdown) and records open, first page,
+                page turn, seek, zoom, index sweep, search, document switch and memory,
+                with before and after numbers kept in the repository.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.responsiveness-reader-benchmarks/1 ]
+        }
+        check reader-improvements {
+            statement """
+                Measured reader improvements: Markdown open time, chrome text no longer
+                shaped and rasterized every frame, the outline synthesizer no longer
+                quadratic per page, every page reaches the search index, and document
+                opens no longer block the UI thread.
+                """
+            method observation
+            verified_by [ @docwrite.evidence.responsiveness-reader-improvements/1 ]
+        }
+        check writer-typing {
+            statement """
+                Keystroke-to-paint on a book of several hundred pages stays well inside
+                the 8 ms budget in release, with per-phase numbers recorded before and
+                after, and the layout no longer rebuilds every paragraph per keystroke.
+                """
+            method command
+            command "cargo run --release -p docwrite-app --example typing_profile -- BOOK.legebook"
+            verified_by [ @docwrite.evidence.responsiveness-writer-typing/1 ]
+        }
+    }
+    author "Claude"
+}
+
 record docwrite.work.spellcheck-optional/1 : work {
     title "Optional SymSpell spellchecking behind a feature flag"
     state proposed

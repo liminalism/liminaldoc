@@ -6,7 +6,18 @@ own repository is split out. Its AKR ledger belongs to this repository.
 
 Build from here with `cargo check --workspace --all-targets`. The PDF engine
 and liminalkit are sibling workspaces during this extraction. Their paths must
-be remapped before packaging a distributable release.
+be remapped before packaging a distributable release. The PDF engine's JPEG
+2000 codec reaches one more sibling: `../jpegXL-rs/JPXL` (a checkout of
+`liminalism/JPXL`), which `lege-codecs/jp2lam` names by path; without it the
+reader does not build.
+
+Performance work has reproducible headless benchmarks: `bench_corpus`
+(docwrite-app example) writes a long manuscript as `.legebook`, PDF and
+Markdown; `reader_bench` (liminal-reader example) drives the production
+engine, conductor and caches over a document and reports open, first page,
+page turn, seek, zoom, index sweep, search and memory; `typing_profile`
+(docwrite-app example) types into a manuscript and reports keystroke phases.
+Results that back ledger evidence live under `docs/benchmarks/`.
 
 Run `akr` commands from this repository root. The sibling checkouts (notably
 Lege-ecosystem) hold separate ledgers, so invoking from the wrong cwd silently

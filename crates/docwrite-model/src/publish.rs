@@ -903,6 +903,8 @@ pub(crate) fn standard_styles() -> Vec<ParagraphStyle> {
 
 #[cfg(test)]
 mod default_style_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::Book;
 
     #[test]

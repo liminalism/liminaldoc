@@ -170,6 +170,8 @@ fn zip_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     fn u32_at(bytes: &[u8], at: usize) -> u32 {

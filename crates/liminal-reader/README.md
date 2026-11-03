@@ -170,6 +170,23 @@ cargo clippy -p liminaldoc-reader --all-targets --no-deps -- -D warnings
 cargo test -p lege-gpu --features presentation presentation::tests
 ```
 
+## Measure
+
+```text
+cargo run --release -p liminaldoc-reader --example reader_bench -- --generate CORPUS_DIR
+cargo run --release -p liminaldoc-reader --example reader_bench -- document.pdf --json out.json
+cargo run --release -p liminaldoc-reader --example md_open_profile -- notes.md
+cargo test --release -p liminaldoc-reader --lib -- ui_thread_cost --ignored --nocapture
+```
+
+`reader_bench` drives the production engine, layout, conductor and caches
+without a window and reports, in milliseconds, open, time to first and exact
+pixels of the first page, sequential page turns, random seeks, zoom, the
+background index sweep, search, a document switch and memory. The UI-thread
+benchmark reports what a background index sweep costs the thread that owns
+input. Markdown layout runs across all cores; `LIMINALDOC_MD_LAYOUT_THREADS`
+pins the count for scaling experiments and never changes the output.
+
 The tests cover deterministic headless composition, the 10,000-page layout,
 tile fallback and generations, directional prediction, off-screen final-tile
 completion, cache promotion, rapid viewport replanning and queue drainage,

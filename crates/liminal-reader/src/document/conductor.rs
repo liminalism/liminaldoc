@@ -721,16 +721,33 @@ impl Conductor {
             };
             examined += 1;
             let preview_key = WorkKey::Preview(page);
-            if (self.indexed_pages.contains(&page)
-                && self
-                    .previews
-                    .contains_variant(page, self.layout.render_variant))
+            let has_preview = self
+                .previews
+                .contains_variant(page, self.layout.render_variant);
+            if (self.indexed_pages.contains(&page) && has_preview)
                 || self.quarantined_pages.contains(&page)
-                || self.compiled.contains_key(&page)
                 || self.compile_states.contains_key(&page)
                 || self.queued.contains(&preview_key)
                 || self.in_flight.contains_key(&preview_key)
             {
+                continue;
+            }
+            if self.compiled.contains_key(&page) {
+                // Resident but never indexed: a page compiled for a jump that
+                // was over before it finished has its text-index and preview
+                // needs cleared, and would otherwise be skipped by the sweep
+                // for as long as it stays resident — the index never reaches
+                // the last page, the synthesized contents never appear, and
+                // search silently misses it. Fulfilling it is a publish, not
+                // a compile, so it costs no worker time.
+                self.fulfill_resident(
+                    page,
+                    CompileNeeds {
+                        text_index: true,
+                        preview: !has_preview,
+                        ..CompileNeeds::default()
+                    },
+                );
                 continue;
             }
             if self.layout.placement(page).is_none() {

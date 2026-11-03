@@ -15,10 +15,7 @@
 //! time), and table columns share the content width equally instead of
 //! auto-sizing to content.
 
-use std::collections::HashSet;
-
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style, Weight};
-use pdf_font::StandardFont;
 
 use crate::geometry::RectF;
 
@@ -165,20 +162,18 @@ impl std::fmt::Debug for MdFonts {
 }
 
 impl MdFonts {
-    /// Build a shaping context. The embedded base-14 programs are the primary
-    /// faces (mirroring the chrome text renderer, including its discovered
-    /// family names); system fonts supply every script they cannot cover.
-    /// Roughly 60 ms once per owner from the system scan.
+    /// Build a shaping context over the process-wide font database (see
+    /// `text::fonts`): the embedded base-14 programs are the primary faces,
+    /// mirroring the chrome text renderer, and system fonts supply every
+    /// script they cannot cover. The system scan happens once per process;
+    /// this is a clone of its face table and costs microseconds.
     pub fn new() -> Self {
-        let mut font_system = FontSystem::new();
-        let regular = register_embedded_family(&mut font_system, StandardFont::Helvetica);
-        let bold = register_embedded_family(&mut font_system, StandardFont::HelveticaBold);
-        let mono = register_embedded_family(&mut font_system, StandardFont::Courier);
+        let (font_system, families) = crate::text::fonts::font_system();
         Self {
             font_system,
-            regular,
-            bold,
-            mono,
+            regular: families.regular,
+            bold: families.bold,
+            mono: families.mono,
         }
     }
 }
@@ -189,41 +184,100 @@ impl Default for MdFonts {
     }
 }
 
-/// Register one embedded program and report the family name it landed under.
-/// Same discovered-name rule as the chrome renderer: matching on the declared
-/// family keeps a future program swap from silently changing the typeface.
-pub(crate) fn register_embedded_family(
-    font_system: &mut FontSystem,
-    font: StandardFont,
-) -> Option<String> {
-    let before: HashSet<_> = font_system.db().faces().map(|face| face.id).collect();
-    font_system
-        .db_mut()
-        .load_font_data(font.program_data().to_vec());
-    font_system
-        .db()
-        .faces()
-        .find(|face| !before.contains(&face.id))
-        .and_then(|face| face.families.first().map(|(name, _)| name.clone()))
-}
-
 /// Lay out a whole document into pages.
 pub fn layout_document(fonts: &mut MdFonts, blocks: &[Block]) -> Vec<MdPage> {
-    let mut frags = Vec::new();
-    for block in blocks {
-        let mut frag = Frag::default();
-        Layer {
-            fonts: &mut *fonts,
-            frag: &mut frag,
-            indent: MARGIN_X,
-            width: CONTENT_WIDTH,
-            muted: false,
-            gap: PARAGRAPH_GAP,
-        }
-        .layout_block(block, true);
-        frags.push(frag);
+    paginate(layout_blocks(fonts, blocks))
+}
+
+/// Documents with fewer top-level blocks than this are laid out on the
+/// calling thread: spawning costs more than it saves on a page of notes.
+const PARALLEL_MIN_BLOCKS: usize = 48;
+
+/// Lay out one top-level block into its own fragment.
+fn layout_block_frag(fonts: &mut MdFonts, block: &Block) -> Frag {
+    let mut frag = Frag::default();
+    Layer {
+        fonts,
+        frag: &mut frag,
+        indent: MARGIN_X,
+        width: CONTENT_WIDTH,
+        muted: false,
+        gap: PARAGRAPH_GAP,
     }
-    paginate(frags)
+    .layout_block(block, true);
+    frag
+}
+
+/// Lay out every top-level block, in document order.
+///
+/// Blocks are independent — a fragment is a pure function of its block and
+/// the fonts — so a long document is shaped on every core and only the
+/// pagination that follows is sequential. Shaping is 90% of opening a
+/// Markdown file, and it happened on the UI thread before the window could
+/// show anything, so this is what decides the time to the first readable
+/// page of a book-length file. The result is byte-identical to the
+/// sequential layout: each thread shapes against a clone of the same font
+/// database, and fragments are placed by block index rather than by the
+/// order in which they finished.
+fn layout_blocks(fonts: &mut MdFonts, blocks: &[Block]) -> Vec<Frag> {
+    // `LIMINALDOC_MD_LAYOUT_THREADS` pins the worker count for benchmarks
+    // and scaling experiments; it never changes the output.
+    let workers = std::env::var("LIMINALDOC_MD_LAYOUT_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|count| *count >= 1)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map_or(1, std::num::NonZeroUsize::get)
+                .min(8)
+        });
+    layout_blocks_with(fonts, blocks, workers)
+}
+
+fn layout_blocks_with(fonts: &mut MdFonts, blocks: &[Block], workers: usize) -> Vec<Frag> {
+    if workers <= 1 || blocks.len() < PARALLEL_MIN_BLOCKS {
+        return blocks
+            .iter()
+            .map(|block| layout_block_frag(fonts, block))
+            .collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let claim = || {
+        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        (index < blocks.len()).then_some(index)
+    };
+    let mut slots: Vec<Option<Frag>> = (0..blocks.len()).map(|_| None).collect();
+    std::thread::scope(|scope| {
+        let helpers: Vec<_> = (1..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut fonts = MdFonts::new();
+                    let mut done = Vec::new();
+                    while let Some(index) = claim() {
+                        done.push((index, layout_block_frag(&mut fonts, &blocks[index])));
+                    }
+                    done
+                })
+            })
+            .collect();
+        while let Some(index) = claim() {
+            slots[index] = Some(layout_block_frag(fonts, &blocks[index]));
+        }
+        for helper in helpers {
+            // A helper that panicked loses only its own fragments, which are
+            // laid out again below rather than silently dropped.
+            if let Ok(done) = helper.join() {
+                for (index, frag) in done {
+                    slots[index] = Some(frag);
+                }
+            }
+        }
+    });
+    slots
+        .into_iter()
+        .enumerate()
+        .map(|(index, slot)| slot.unwrap_or_else(|| layout_block_frag(fonts, &blocks[index])))
+        .collect()
 }
 
 /// One flattened style run: text plus its full style.
@@ -1382,6 +1436,34 @@ mod tests {
     fn laid(source: &str) -> Vec<MdPage> {
         let mut fonts = MdFonts::new();
         layout_document(&mut fonts, &parse_markdown(source))
+    }
+
+    /// Parallel layout is a scheduling detail: pages, lines, glyph
+    /// positions, links and headings must be byte-identical to the
+    /// sequential layout whatever the thread count, and stable across runs.
+    #[test]
+    fn parallel_layout_is_identical_to_sequential_layout() {
+        let mut source = String::from("# Long\n\n");
+        for block in 0..160 {
+            match block % 5 {
+                0 => source.push_str(&format!("## Section {block}\n\n")),
+                1 => source.push_str("- one *two* `three`\n- four [five](#long)\n\n"),
+                2 => source.push_str("| a | b |\n|---|---|\n| 1 | 2 |\n\n"),
+                3 => source.push_str("> quoted text that wraps across the measure more than once, surely\n\n"),
+                _ => source.push_str(&format!(
+                    "Paragraph {block} of the long document, with enough words to wrap onto a second line of the page.\n\n"
+                )),
+            }
+        }
+        let blocks = parse_markdown(&source);
+        assert!(blocks.len() >= PARALLEL_MIN_BLOCKS);
+        let mut fonts = MdFonts::new();
+        let sequential = paginate(layout_blocks_with(&mut fonts, &blocks, 1));
+        let parallel = paginate(layout_blocks_with(&mut fonts, &blocks, 4));
+        let again = paginate(layout_blocks_with(&mut fonts, &blocks, 3));
+        assert_eq!(sequential.len(), parallel.len());
+        assert_eq!(format!("{sequential:?}"), format!("{parallel:?}"));
+        assert_eq!(format!("{sequential:?}"), format!("{again:?}"));
     }
 
     #[test]

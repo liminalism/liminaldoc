@@ -40,6 +40,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
     let paragraphs = vec![
         Paragraph {
             id: 1,
+            revision: 0,
             text: "Front matter".into(),
             style: ParagraphStyle {
                 name: "Chapter Title".into(),
@@ -52,6 +53,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 2,
+            revision: 0,
             text: long_text(),
             style: style.clone(),
             note: None,
@@ -61,6 +63,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 3,
+            revision: 0,
             text: "A heading that stays with the next paragraph".into(),
             style: ParagraphStyle {
                 keep_with_next: true,
@@ -75,6 +78,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 4,
+            revision: 0,
             text: "The paragraph after the heading.".into(),
             style: style.clone(),
             note: None,
@@ -84,6 +88,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 5,
+            revision: 0,
             text: "An epigraph sits above the chapter.".into(),
             style: ParagraphStyle {
                 name: "Epigraph".into(),
@@ -96,6 +101,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 6,
+            revision: 0,
             text: "A quoted passage.".into(),
             style: ParagraphStyle {
                 name: "Block Quote".into(),
@@ -108,6 +114,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 7,
+            revision: 0,
             text: "plate".into(),
             style: ParagraphStyle {
                 name: "Image".into(),
@@ -120,6 +127,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 8,
+            revision: 0,
             text: "Caption under the plate.".into(),
             style: ParagraphStyle {
                 name: "Caption".into(),
@@ -133,6 +141,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 9,
+            revision: 0,
             text: "Drop".into(),
             style: ParagraphStyle {
                 drop_cap_lines: 2,
@@ -146,6 +155,7 @@ fn paragraph_rules_keep_rules_hold_and_prose_features_shape() {
         },
         Paragraph {
             id: 10,
+            revision: 0,
             text: "Back matter".into(),
             style: ParagraphStyle {
                 name: "Chapter Title".into(),
@@ -210,6 +220,7 @@ fn layout(text: &str, geometry: Geometry, control: bool) -> Document {
         geometry,
         vec![Paragraph {
             id: 1,
+            revision: 0,
             text: text.into(),
             style,
             note: None,
@@ -284,6 +295,7 @@ fn a_long_word_breaks_with_a_visible_hyphen() {
         geometry,
         vec![Paragraph {
             id: 1,
+            revision: 0,
             text: "extraordinary".into(),
             style: ParagraphStyle {
                 hyphenate: true,
@@ -320,6 +332,7 @@ fn an_image_stays_on_the_same_page_as_its_caption() {
     };
     let lead = Paragraph {
         id: 1,
+        revision: 0,
         text: "Lead".into(),
         style: ParagraphStyle::default(),
         note: None,
@@ -329,6 +342,7 @@ fn an_image_stays_on_the_same_page_as_its_caption() {
     };
     let image = Paragraph {
         id: 2,
+        revision: 0,
         text: "Figure".into(),
         style: ParagraphStyle {
             name: "Image".into(),
@@ -341,6 +355,7 @@ fn an_image_stays_on_the_same_page_as_its_caption() {
     };
     let caption = Paragraph {
         id: 3,
+        revision: 0,
         text: "Caption under the figure".into(),
         style: ParagraphStyle {
             name: "Caption".into(),
@@ -394,6 +409,7 @@ fn first_line_indent_shortens_the_opening_line() {
         geometry,
         vec![Paragraph {
             id: 1,
+            revision: 0,
             text: text.clone(),
             style: indented,
             note: None,
@@ -408,6 +424,7 @@ fn first_line_indent_shortens_the_opening_line() {
         geometry,
         vec![Paragraph {
             id: 1,
+            revision: 0,
             text,
             style: flush,
             note: None,

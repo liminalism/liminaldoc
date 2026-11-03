@@ -5,6 +5,7 @@
 //! typesetting later cuts this same sequence.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ropey::Rope;
 
@@ -117,8 +118,18 @@ impl Note {
     }
 }
 
+/// Process-wide source of block revisions: every change to any block takes
+/// the next value, so one `(id, revision)` pair names one content for the
+/// life of the process. Loaded blocks start at zero and move off it on
+/// their first edit.
+static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
+
+fn next_revision() -> u64 {
+    NEXT_REVISION.fetch_add(1, Ordering::Relaxed)
+}
+
 /// One block: a rope of text, the runs over it, and an optional note slot.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     id: BlockId,
     kind: BlockKind,
@@ -130,9 +141,39 @@ pub struct Block {
     /// paragraph style. Older bundles predate this field and load as `None`.
     #[serde(default)]
     align: Option<Align>,
+    /// Changes whenever the text, runs, kind, note or alignment change.
+    /// Not persisted and not part of equality: it is a cache key, not
+    /// content. The typesetter keeps a paragraph whose block still has the
+    /// revision it was built from instead of comparing the text, which a
+    /// rope cannot do without measuring every leaf again.
+    #[serde(skip)]
+    revision: u64,
 }
 
+impl PartialEq for Block {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.kind == other.kind
+            && self.text == other.text
+            && self.runs == other.runs
+            && self.note == other.note
+            && self.align == other.align
+    }
+}
+
+impl Eq for Block {}
+
 impl Block {
+    /// The content revision: equal revisions on equal ids mean equal
+    /// text, runs, kind, note and alignment.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    fn touch(&mut self) {
+        self.revision = next_revision();
+    }
+
     /// Stable id. Never reused.
     pub fn id(&self) -> BlockId {
         self.id
@@ -151,6 +192,38 @@ impl Block {
     /// Block text.
     pub fn text(&self) -> String {
         self.text.to_string()
+    }
+
+    /// Whether the block's text is exactly `text`, without building a
+    /// `String`: the typesetter asks this for every block on every
+    /// keystroke to find the ones it can keep.
+    pub fn text_eq(&self, text: &str) -> bool {
+        // Walk the leaves by byte position and never ask the rope for its
+        // length: `Rope == str`, the chunk iterator and even `len_bytes`
+        // re-measure a leaf's text (characters, line breaks) before a byte
+        // is compared, which on a thousand-page book was most of what a
+        // keystroke cost. A positional chunk lookup only adds up the
+        // measurements the tree already holds.
+        let mut offset = 0;
+        loop {
+            let Some((chunk, chunk_start, _, _)) = self.text.get_chunk_at_byte(offset) else {
+                return false;
+            };
+            let Some(piece) = chunk.get(offset - chunk_start..) else {
+                return false;
+            };
+            if piece.is_empty() {
+                // The rope has ended; so must the text.
+                return offset == text.len();
+            }
+            if !text
+                .get(offset..)
+                .is_some_and(|rest| rest.starts_with(piece))
+            {
+                return false;
+            }
+            offset += piece.len();
+        }
     }
 
     /// Styled spans covering [`Self::text`].
@@ -174,23 +247,28 @@ impl Block {
     }
 
     pub(crate) fn text_rope_mut(&mut self) -> &mut Rope {
+        self.touch();
         &mut self.text
     }
 
     pub(crate) fn runs_mut(&mut self) -> &mut Vec<Run> {
+        self.touch();
         &mut self.runs
     }
 
     pub(crate) fn set_kind(&mut self, kind: BlockKind) {
         self.kind = kind;
+        self.touch();
     }
 
     pub(crate) fn set_note(&mut self, note: Option<NoteId>) {
         self.note = note;
+        self.touch();
     }
 
     pub(crate) fn set_align(&mut self, align: Option<Align>) {
         self.align = align;
+        self.touch();
     }
 
     pub(crate) fn new(id: BlockId, kind: BlockKind, text: &str, runs: Vec<Run>) -> Self {
@@ -201,6 +279,7 @@ impl Block {
             runs,
             note: None,
             align: None,
+            revision: next_revision(),
         }
     }
 
@@ -568,6 +647,7 @@ impl Book {
                 tail.align = head.align;
                 head.text.remove(position.offset..len);
                 head.runs = runs::slice_runs(&head.runs, 0, position.offset);
+                head.touch();
                 leading.sections[loc.section].blocks.push(head);
                 blocks.insert(0, tail);
             }
@@ -678,6 +758,20 @@ impl Book {
             section,
         })?;
         Ok(section_id)
+    }
+
+    /// The invariant check an edit ends with. The full walk below visits
+    /// every block of the book and rebuilds its index, which on a
+    /// thousand-page manuscript is about a millisecond spent on every
+    /// keystroke verifying the model against itself; debug builds and the
+    /// test suite keep it, a release build checks only what the edit could
+    /// have left dangling: the selection.
+    pub(crate) fn check_after_edit(&self) -> Result<(), ModelError> {
+        if cfg!(debug_assertions) {
+            return self.check_consistency();
+        }
+        self.ensure_position(self.selection.anchor)?;
+        self.ensure_position(self.selection.focus)
     }
 
     /// Ids, runs, the selection and note links agree with the tree.

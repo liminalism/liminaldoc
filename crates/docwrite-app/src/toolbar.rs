@@ -917,10 +917,7 @@ impl Editor {
                 baseline,
                 size,
             );
-            let label_w: f32 = face
-                .shape(&label, size, &[])
-                .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-                .unwrap_or(0.0);
+            let label_w: f32 = self.labels.width(face, &label, size);
             let field_x = left + (12.0 * s) as i32 + label_w as i32;
             painter.fill_rect(
                 liminalkit_raster::Rect::new(
@@ -931,11 +928,8 @@ impl Editor {
                 ),
                 self.theme_now.page,
             );
-            let text_width = |end: usize| -> f32 {
-                face.shape(&prompt.text[..end], size, &[])
-                    .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-                    .unwrap_or(0.0)
-            };
+            let mut text_width =
+                |end: usize| -> f32 { self.labels.width(face, &prompt.text[..end], size) };
             let inset = (4.0 * s) as i32;
             let inner_x = field_x + inset;
             let inner_w = (width - (6.0 * s) as i32 - inset - inner_x).max(1);
@@ -985,10 +979,7 @@ impl Editor {
                 liminalkit_raster::Rect::new(button.x, button.y, button.w, button.h),
                 fill,
             );
-            let label_w: f32 = face
-                .shape(&button.label, size, &[])
-                .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-                .unwrap_or(0.0);
+            let label_w: f32 = self.labels.width(face, &button.label, size);
             let dropdown = matches!(button.action, Action::FontSize | Action::ParagraphStyle);
             let arrow_space = if dropdown { 12.0 * s } else { 0.0 };
             let x = button.x + ((button.w as f32 - label_w - arrow_space) / 2.0) as i32;
@@ -1026,10 +1017,7 @@ impl Editor {
             } else {
                 format!("{} / {pages}", top + 1)
             };
-            let status_w: f32 = face
-                .shape(&status, size, &[])
-                .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
-                .unwrap_or(0.0);
+            let status_w: f32 = self.labels.width(face, &status, size);
             let x = width - status_w as i32 - (5.0 * s) as i32;
             let reserved = self.page_counter_width();
             painter.fill_rect(

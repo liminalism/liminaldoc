@@ -96,6 +96,8 @@ pub fn remove(path: &Path) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::Editor;
     use crate::autosave::AutosaveInterval;

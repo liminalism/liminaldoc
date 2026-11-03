@@ -130,6 +130,28 @@ fn typing_into_the_editor_stays_inside_the_budget() {
             .expect("caret");
         editor.type_text(" ");
         editor.paint(&mut frame); // settle the view on the caret's page
+        let caret_page = editor
+            .document()
+            .and_then(|document| {
+                let paragraph = document.paragraph_of(block.raw())?;
+                document.page_of(paragraph, 5)
+            })
+            .expect("caret page");
+        // Pagination may cascade when a keystroke changes a paragraph's line
+        // count, but it must stop at the next chapter opener (a hard break)
+        // and never reach back before the caret's page.
+        let next_opener = editor
+            .document()
+            .map(|document| {
+                document
+                    .contents()
+                    .into_iter()
+                    .map(|(_, page)| page)
+                    .filter(|page| *page > caret_page)
+                    .min()
+                    .unwrap_or(pages + 1)
+            })
+            .expect("document");
         for ch in ["k", "e", "y", "s"] {
             let started = Instant::now();
             editor.type_text(ch);
@@ -141,8 +163,11 @@ fn typing_into_the_editor_stays_inside_the_budget() {
                 "at {fraction}: one paragraph shaped"
             );
             assert!(
-                report.pages_laid_out.len() <= 3,
-                "at {fraction}: typing laid out {:?} of {pages}",
+                report
+                    .pages_laid_out
+                    .iter()
+                    .all(|page| *page + 1 >= caret_page && *page < next_opener),
+                "at {fraction}: typing on page {caret_page} laid out {:?} of {pages} (next opener {next_opener})",
                 report.pages_laid_out
             );
             assert!(

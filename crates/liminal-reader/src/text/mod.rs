@@ -1,3 +1,4 @@
+pub mod fonts;
 pub mod line;
 pub mod outline;
 pub mod search;

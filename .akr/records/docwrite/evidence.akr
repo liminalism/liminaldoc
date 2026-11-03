@@ -764,6 +764,83 @@ record docwrite.evidence.release-app-icons/1 : evidence {
     author "dk"
 }
 
+record docwrite.evidence.responsiveness-correctness/1 : evidence {
+    title "Reader and writer test suites pass in debug and release; workspace clippy passes with pre-existing warnings only"
+    state verified
+    result pass
+    method command
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    command "cargo test --release -p liminaldoc-reader; cargo test -p docwrite-model -p docwrite-typeset -p docwrite-app -p docwrite-export; cargo clippy --workspace --all-targets"
+    summary """
+        Reader: 128 library tests, 35 architecture tests and the doc tests pass in release,
+        including the new chrome retention, parallel-layout identity and shared-font-system
+        tests. Writer: every docwrite-model, docwrite-typeset, docwrite-app and docwrite-export
+        test passes in debug, where Book::check_consistency still runs after every edit and
+        layout_inputs asserts that a kept paragraph's text matches its block. Workspace clippy
+        reports only pre-existing warnings (DocumentTabs::len without is_empty,
+        paint_label_with_color argument count, two in the long_manuscript example); three
+        pre-existing test modules that unwrap now carry the same allow the other test modules
+        use, so the deny-level lint no longer stops the run. cargo fmt --all applied.
+        """
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "claude"
+}
+
+record docwrite.evidence.responsiveness-reader-benchmarks/1 : evidence {
+    title "Headless reader benchmark over a generated corpus, before and after, kept under docs/benchmarks/2026-11-03"
+    state verified
+    result pass
+    method observation
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    command "cargo run --release -p liminaldoc-reader --example reader_bench -- CORPUS/book.pdf --json out.json"
+    artifact "docs/benchmarks/2026-11-03/table.md"
+    summary """
+        examples/reader_bench.rs drives the production engine, PageLayoutIndex, ConductorHandle,
+        TileCache, PagePreviewCache and SearchIndex without a window over bench_corpus output
+        (700-page typeset book PDF, 1 MB Markdown) and generated PDFs (1000-page classic text,
+        200-page vector with a raster page, 9-page scan) plus a 300 KB specification Markdown.
+        It reports open, first page (first pixels / exact), 30 sequential page turns, 20
+        deterministic seeks, three zoom steps, index sweep, search, document switch and memory as
+        p50/p95/p99/max, and writes JSON. Before/after JSON for every document and the rendered
+        table are under docs/benchmarks/2026-11-03/. On this 4-core sandbox, release: book PDF
+        first page exact 19.7 -> 17.0 ms, page-turn exact p50 0.04 ms both, seek exact p50
+        18.9 -> 19.4 ms (noise), document switch 36.9 -> 23.6 ms; 1 MB Markdown open 440 -> 297 ms
+        and switch 574 -> 272 ms; 300 KB Markdown open 277 -> 114 ms. Markdown first-page exact
+        after open rose about 10 ms (46 -> 57-66 ms) when layout runs on four threads, measured
+        against LIMINALDOC_MD_LAYOUT_THREADS=1 at 52 ms; open plus first page still falls from
+        about 560 to 330 ms. PDF numbers are unchanged within noise, as expected: none of the
+        changes touch PDF compile or raster. Memory stays within the arbiter budget (RSS 320-505
+        MiB across documents, unchanged).
+        """
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "claude"
+}
+
+record docwrite.evidence.responsiveness-reader-improvements/1 : evidence {
+    title "Chrome retained across frames, outline insert bisects, resident pages reach the index, Markdown layout parallel and byte-identical, opens off the UI thread"
+    state verified
+    result pass
+    method command
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    command "cargo test --release -p liminaldoc-reader; cargo test --release -p liminaldoc-reader --lib -- ui_thread_cost --ignored --nocapture; cargo run --release -p liminaldoc-reader --example md_open_profile -- CORPUS/book.md"
+    artifact "docs/benchmarks/2026-11-03/table.md"
+    summary """
+        unchanged_chrome_surfaces_are_retained_between_frames holds every chrome surface except
+        the memory-reporting status footer to the same Arc across two composed frames.
+        parallel_layout_is_identical_to_sequential_layout compares the Debug form of pages laid
+        out with 1, 3 and 4 threads over a 160-block document. md_open_profile on the 1 MB book
+        Markdown: layout 408 ms at one thread, 297 at two, 175-220 at four (full open 388 -> 229
+        ms); the 300 KB specification 150 -> 108 ms. The UI-thread sweep benchmark (400 synthetic
+        pages, 1280x900) drains in 104 ms total with the sidebar closed (187 ms before the outline
+        bisection) and 45 ms with it open. reader_bench's index sweep reached 351 of 351 Markdown
+        pages in every run after the conductor fix; before it, one run stalled at 350 of 351 for
+        120 s. Document opens go through ViewerEvent::DocumentOpened; headless tests still open
+        synchronously, and 128 library plus 35 architecture reader tests pass in release.
+        """
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "claude"
+}
+
 record docwrite.evidence.responsiveness-renders/1 : evidence {
     title "Headless PNG renders reviewed: serif justified body, footnote session caret at ruled foot with folio, WP5.1 fullscreen with clear status line; fixed toolbar tofu and status overlap found in review"
     state verified
@@ -774,6 +851,32 @@ record docwrite.evidence.responsiveness-renders/1 : evidence {
         Headless PNG renders reviewed: serif justified body, footnote session caret at ruled foot with folio, WP5.1 fullscreen with clear status line; fixed toolbar tofu and status overlap found in review
         """
     author "dk"
+}
+
+record docwrite.evidence.responsiveness-writer-typing/1 : evidence {
+    title "Typing into a 591-page book: keystroke-to-paint p50 9.7-11.7 ms before, 3.2 ms after; release latency gate passes at p50 3.0 ms, max 4.0 ms"
+    state verified
+    result pass
+    method command
+    observed_at git:cdd4efc8bf6a5c21a21838cce00b491b3d057359
+    command "cargo run --release -p docwrite-app --example typing_profile -- CORPUS/book.legebook 120 --json out.json; cargo test --release -p docwrite-app --test latency_gate -- --nocapture"
+    artifact "docs/benchmarks/2026-11-03/table.md"
+    summary """
+        examples/typing_profile.rs opens the bench_corpus manuscript (591 pages at the editor's
+        geometry) and types, deletes and undoes 120 keys at the start, middle and end through
+        Editor::type_text and Editor::paint at 1100x800, then pages, seeks, finds, saves and
+        reopens; FramePhases reports where each frame went. Release, 4-core sandbox. Before:
+        type p50 9.65 / p95 14.0 / p99 16.4 ms, backspace p50 10.7, undo p50 10.6, page turn
+        2.9, go-to-page 2.6, find 14.6; phases: layout inputs 3.2, apply 2.9, pages 2.3, chrome
+        1.1. After: type p50 3.17 / p95 4.73 / p99 5.40 ms, backspace 3.18, undo 3.10, page turn
+        1.21, go-to-page 1.27, find 6.69; phases: inputs 1.07, apply 0.62, pages 1.38, chrome
+        0.25. Save (94 ms) and reopen+paint (312 ms, a full layout) are unchanged within noise.
+        The release latency gate failed before this work (keypress-to-present p50 8.02 ms, max
+        8.98 ms, and a font-dependent page-count assertion); it passes now with p50 3.05 ms,
+        max 4.03 ms and seek/page p50 1.17 ms, max 1.72 ms.
+        """
+    derived_from [ @docwrite.work.reader-writer-responsiveness/1 ]
+    author "claude"
 }
 
 record docwrite.evidence.selection-highlight/1 : evidence {
