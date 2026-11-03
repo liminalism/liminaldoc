@@ -29,7 +29,12 @@ impl Editor {
     /// Open a native bundle or import a text-bearing standard format into an
     /// unsaved document. Imports never bind their source file as a save target.
     pub fn open_document(path: &Path) -> Result<Self, String> {
-        if path.is_dir() || path.extension().is_some_and(|ext| ext == "legebook") {
+        if (path.is_dir()
+            && !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("pages")))
+            || path.extension().is_some_and(|ext| ext == "legebook")
+        {
             return Self::open_existing(path);
         }
         let book = crate::document_io::import_book(path)?;
@@ -123,6 +128,62 @@ impl Editor {
         self.autosave()?;
         self.last_save_attempt = Instant::now();
         Ok(())
+    }
+
+    /// Save silently when closing. Untitled drafts receive a unique bundle
+    /// under `root`; an untouched empty document needs no file.
+    pub fn save_on_close(&mut self, root: &Path) -> Result<Option<PathBuf>, String> {
+        if let Some(path) = self.bundle.clone() {
+            self.save_now()?;
+            return Ok(Some(path));
+        }
+        if !self.dirty && self.book.plain_text().is_empty() && !self.book.has_structure() {
+            return Ok(None);
+        }
+        self.wait_for_background_save()?;
+        std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
+        let title: String = self
+            .book
+            .title()
+            .chars()
+            .filter(|ch| ch.is_alphanumeric() || matches!(ch, ' ' | '-' | '_'))
+            .take(60)
+            .collect();
+        let title = if title.trim().is_empty() {
+            "Untitled"
+        } else {
+            title.trim()
+        };
+        // Reserve the directory atomically, including when two writer
+        // processes close unnamed documents at the same time.
+        let path = tempfile::Builder::new()
+            .prefix(&format!("{title}-"))
+            .suffix(".legebook")
+            .tempdir_in(root)
+            .map_err(|error| error.to_string())?
+            .keep();
+        self.book
+            .save_bundle(&path)
+            .map_err(|error| error.to_string())?;
+        self.bundle = Some(path.clone());
+        self.drop_recovery();
+        self.dirty = false;
+        self.last_save_attempt = Instant::now();
+        Ok(Some(path))
+    }
+
+    /// Keep a recovery draft when a final save could not reach its destination.
+    /// Its bundle remains discoverable on the next launch, even after Drop.
+    pub fn save_recovery_on_exit(&mut self) -> Result<PathBuf, String> {
+        self.wait_for_background_save()?;
+        let path = self
+            .recovery_target()
+            .ok_or_else(|| "No recovery directory is available".to_string())?;
+        self.recovery = None;
+        self.book
+            .save_bundle(&path)
+            .map_err(|error| error.to_string())?;
+        Ok(path)
     }
 
     /// Start a background save at the selected elapsed-time interval.
@@ -279,6 +340,15 @@ impl Editor {
 
     /// Write the book as Markdown at `path`.
     pub fn export_markdown_to(&self, path: &Path) -> Result<(), String> {
+        if self
+            .book
+            .blocks()
+            .any(|b| matches!(b.kind(), docwrite_model::BlockKind::TableCell { .. }))
+        {
+            return Err(
+                "This export does not preserve tables yet; save as .legebook or export PDF.".into(),
+            );
+        }
         write_atomically(
             path,
             docwrite_export::export_markdown(&self.book).as_bytes(),
@@ -287,11 +357,29 @@ impl Editor {
 
     /// Export plain text without changing this tab's native save destination.
     pub fn export_text_to(&self, path: &Path) -> Result<(), String> {
+        if self
+            .book
+            .blocks()
+            .any(|b| matches!(b.kind(), docwrite_model::BlockKind::TableCell { .. }))
+        {
+            return Err(
+                "This export does not preserve tables yet; save as .legebook or export PDF.".into(),
+            );
+        }
         write_atomically(path, self.book.plain_text().as_bytes())
     }
 
     /// Write a DOCX copy without changing this tab's native save destination.
     pub fn export_docx_to(&self, path: &Path) -> Result<(), String> {
+        if self
+            .book
+            .blocks()
+            .any(|b| matches!(b.kind(), docwrite_model::BlockKind::TableCell { .. }))
+        {
+            return Err(
+                "This export does not preserve tables yet; save as .legebook or export PDF.".into(),
+            );
+        }
         crate::document_io::export_docx(&self.book, path)
     }
 
@@ -319,6 +407,12 @@ impl Editor {
         self.book.copy().ok().map(|fragment| fragment.plain_text())
     }
 
+    /// Select all editable manuscript text across paragraphs and chapters.
+    pub fn select_all(&mut self) {
+        self.move_document_start(false);
+        self.move_document_end(true);
+    }
+
     /// Remove the selection and return its text, for the clipboard.
     pub fn cut_text(&mut self) -> Option<String> {
         if self.book.selection().is_collapsed() {
@@ -343,8 +437,24 @@ impl Editor {
         }
     }
 
+    /// Delete to the neighboring word boundary, or delete the selection.
+    pub fn delete_word(&mut self, forward: bool) {
+        if self.book.selection().is_collapsed() {
+            let direction = if forward {
+                Direction::Forward
+            } else {
+                Direction::Backward
+            };
+            let _ = self.book.extend_selection(Motion::Word(direction));
+        }
+        if !self.book.selection().is_collapsed() && self.book.delete_forward().is_ok() {
+            self.edited();
+        }
+    }
+
     /// Move (or with `extend`, select) one word forward or backward.
     pub fn move_word(&mut self, forward: bool, extend: bool) {
+        self.line_end = None;
         let motion = Motion::Word(if forward {
             Direction::Forward
         } else {
@@ -373,17 +483,75 @@ impl Editor {
         }
     }
 
-    /// Move to the start of the caret's paragraph.
+    /// Move to the start of the caret's displayed line.
     pub fn move_home(&mut self, extend: bool) {
-        let focus = self.book.selection().focus;
-        self.set_focus(Position::new(focus.block, 0), extend);
+        self.move_line_edge(false, extend);
     }
 
-    /// Move to the end of the caret's paragraph.
+    /// Move to the end of the caret's displayed line.
     pub fn move_end(&mut self, extend: bool) {
-        let focus = self.book.selection().focus;
-        let len = self.book.block_len(focus.block).unwrap_or(focus.offset);
-        self.set_focus(Position::new(focus.block, len), extend);
+        self.move_line_edge(true, extend);
+    }
+
+    fn move_line_edge(&mut self, end: bool, extend: bool) {
+        self.refresh_layout();
+        let Some((page, line)) = self.caret_line() else {
+            return;
+        };
+        let start = line_start(&line);
+        let byte = if end {
+            self.line_end_byte(page, &line)
+        } else {
+            start
+        };
+        if let Some(target) = self.position_of(line.paragraph, byte) {
+            self.set_focus(target, extend);
+            if end && !line.ends_paragraph {
+                self.line_end = Some((target, page, start));
+            }
+        }
+    }
+
+    pub(crate) fn caret_line(&self) -> Option<(u32, PaintedLine)> {
+        let document = self.document.as_ref()?;
+        let (paragraph, byte) = focus_mark(&self.book, document)?;
+        let affinity = self
+            .line_end
+            .filter(|(position, _, _)| *position == self.book.selection().focus);
+        let page = affinity
+            .map(|(_, page, _)| page)
+            .or_else(|| document.page_of(paragraph, byte))?;
+        let lines = document.page_painted_lines(page);
+        let line = lines.into_iter().rfind(|line| {
+            line.paragraph == paragraph
+                && affinity.map_or(line_start(line) <= byte, |(_, _, start)| {
+                    line_start(line) == start
+                })
+        })?;
+        Some((page, line))
+    }
+
+    fn line_end_byte(&self, page: u32, line: &PaintedLine) -> usize {
+        let len = self.paragraph_len(line.paragraph);
+        if line.ends_paragraph {
+            return len;
+        }
+        let Some(document) = self.document.as_ref() else {
+            return len;
+        };
+        let start = line_start(line);
+        let next = document
+            .page_painted_lines(page)
+            .into_iter()
+            .find(|next| next.paragraph == line.paragraph && line_start(next) > start)
+            .or_else(|| first_line_after(document, page))
+            .filter(|next| next.paragraph == line.paragraph)
+            .map_or(len, |next| line_start(&next));
+        let text = &document.paragraphs()[line.paragraph].text;
+        // Wrapping spaces belong to the source but have no visible glyph.
+        // Use the next line's cluster so a final ligature stays intact.
+        text.get(..next)
+            .map_or(start, |head| head.trim_end().len().max(start))
     }
 
     /// Move to the typeset line above or below, keeping the caret's
@@ -475,56 +643,87 @@ impl Editor {
     }
 
     /// Put the caret at a window point on a page, as a click does.
-    /// Returns whether the point was on a page.
+    /// Returns whether the point resolved to editable manuscript text.
     pub fn click_at(&mut self, x: f32, y: f32, extend: bool) -> bool {
-        let Some(slot) = self
+        if let Some(position) = self.text_position_at(x, y, false) {
+            self.set_focus(position, extend);
+            if !extend {
+                self.follow_citation();
+            }
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn text_position_at(&self, x: f32, y: f32, clamp: bool) -> Option<Position> {
+        let slot = self
             .slots
             .iter()
-            .find(|slot| {
-                x >= slot.left as f32
-                    && x < (slot.left + slot.width) as f32
-                    && y >= slot.top as f32
-                    && y < (slot.top + slot.height) as f32
+            .filter(|slot| {
+                clamp
+                    || (x >= slot.left as f32
+                        && x < (slot.left + slot.width) as f32
+                        && y >= slot.top as f32
+                        && y < (slot.top + slot.height) as f32)
             })
-            .copied()
-        else {
-            return false;
-        };
-        let Some(document) = self.document.as_ref() else {
-            return false;
-        };
+            .min_by(|a, b| {
+                let distance = |slot: &&PageSlot| {
+                    let dx = x - x.clamp(slot.left as f32, (slot.left + slot.width) as f32);
+                    let dy = y - y.clamp(slot.top as f32, (slot.top + slot.height) as f32);
+                    dx * dx + dy * dy
+                };
+                distance(a).total_cmp(&distance(b))
+            })
+            .copied()?;
+        let document = self.document.as_ref()?;
         let page_x = (x - slot.left as f32) / slot.scale;
         let page_y = (y - slot.top as f32) / slot.scale;
         let lines = document.page_painted_lines(slot.page);
-        let Some(line) = lines.iter().min_by(|a, b| {
-            let da = (a.baseline - a.em * 0.3 - page_y).abs();
-            let db = (b.baseline - b.em * 0.3 - page_y).abs();
-            da.total_cmp(&db)
-        }) else {
-            return true;
-        };
+        let ids = self.book.block_ids();
+        let line = lines
+            .iter()
+            .filter(|line| {
+                ids.iter()
+                    .any(|id| id.raw() == document.paragraphs()[line.paragraph].id)
+            })
+            .min_by(|a, b| {
+                let distance = |line: &PaintedLine| {
+                    let dy = line.baseline - line.em * 0.3 - page_y;
+                    let style = &document.paragraphs()[line.paragraph].style;
+                    let dx = if style.table_row.is_some() {
+                        let left = document.page_content_inset(slot.page) + style.left_indent;
+                        let right = document.geometry().page_width
+                            - document.geometry().margin_outer
+                            - style.right_indent;
+                        page_x - page_x.clamp(left, right.max(left))
+                    } else {
+                        0.0
+                    };
+                    dy * dy + dx * dx
+                };
+                distance(a).total_cmp(&distance(b))
+            })?;
         let inset = document.page_content_inset(slot.page);
-        let byte = byte_at_x(
-            line,
-            page_x - inset - line.indent,
-            self.paragraph_len(line.paragraph),
-        );
-        if let Some(position) = self.position_of(line.paragraph, byte) {
-            self.set_focus(position, extend);
-            // A click on a citation opens its source where it came from.
-            self.follow_citation();
-        }
-        true
+        let x = page_x - inset - line.indent;
+        let width: f32 = line.glyphs.iter().map(|glyph| glyph.x_advance).sum();
+        let byte = if x >= width {
+            self.line_end_byte(slot.page, line)
+        } else {
+            byte_at_x(line, x, self.paragraph_len(line.paragraph))
+        };
+        self.position_of(line.paragraph, byte)
     }
 
     fn line_neighbor(&self, down: bool) -> Option<Position> {
         let document = self.document.as_ref()?;
         let (paragraph, byte) = focus_mark(&self.book, document)?;
-        let page = document.page_of(paragraph, byte)?;
+        let (page, current) = self.caret_line()?;
         let lines = document.page_painted_lines(page);
         let index = lines
             .iter()
-            .rposition(|line| line.paragraph == paragraph && line_start(line) <= byte)
+            .rposition(|line| {
+                line.paragraph == paragraph && line_start(line) == line_start(&current)
+            })
             .or_else(|| lines.iter().position(|line| line.paragraph == paragraph))?;
         let current = &lines[index];
         let x = current.indent + x_of(current, byte);
@@ -573,7 +772,8 @@ impl Editor {
         Some(Position::new(id, chars))
     }
 
-    fn set_focus(&mut self, position: Position, extend: bool) {
+    pub(crate) fn set_focus(&mut self, position: Position, extend: bool) {
+        self.line_end = None;
         let selection = if extend {
             Selection {
                 anchor: self.book.selection().anchor,
@@ -913,6 +1113,7 @@ impl Editor {
     /// Record an edit: the layout is stale, the view follows the caret, and
     /// autosave keeps its existing deadline.
     pub(crate) fn edited(&mut self) {
+        self.line_end = None;
         self.touch();
         self.layout_stale = true;
         self.follow_caret = true;

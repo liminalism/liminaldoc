@@ -16,6 +16,19 @@ fn font() -> Vec<u8> {
 }
 
 #[test]
+fn a_plain_document_exports_without_implicit_chapter_titles_or_bookmarks() {
+    let mut book = Book::new("Plain article");
+    book.insert("Only the author's text.").unwrap();
+    assert_eq!(export_markdown(&book).trim(), "Only the author's text.");
+    let exported = export_pdf(&book, &font()).unwrap();
+    assert!(!exported.bytes.windows(9).any(|bytes| bytes == b"/Outlines"));
+    let session = RenderSession::open(Arc::from(exported.bytes), None).unwrap();
+    let text = page_text(&session, 0).unwrap();
+    assert!(!text.contains("Chapter"));
+    assert!(text.contains("author"));
+}
+
+#[test]
 fn markdown_keeps_structure_and_drops_geometry() {
     let mut book = Book::new("Essay");
     let id = book.block_ids()[0];
@@ -233,6 +246,8 @@ fn pdf_pages_are_the_typeset_pages_and_visibly_inked() {
 #[test]
 fn markdown_heads_each_chapter_with_its_title_when_the_template_shows_it() {
     let mut book = Book::new("Essay");
+    let first_chapter = book.parts()[0].chapters()[0].id();
+    book.rename_chapter(first_chapter, "Chapter 1").unwrap();
     let mut template = book.chapter_templates()[0].clone();
     template.show_title = true;
     book.set_chapter_template(template).unwrap();
@@ -273,6 +288,8 @@ fn pdf_sets_footnotes_at_the_foot_of_their_page() {
 #[test]
 fn exports_set_a_chapter_title_only_when_the_template_does() {
     let mut book = Book::new("Essay");
+    let first_chapter = book.parts()[0].chapters()[0].id();
+    book.rename_chapter(first_chapter, "Chapter 1").unwrap();
     book.insert("Body text.").unwrap();
     assert!(!export_markdown(&book).contains("Chapter 1"));
     let mut template = book.chapter_templates()[0].clone();

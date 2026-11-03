@@ -26,6 +26,24 @@ pub(crate) struct BlockLoc {
 /// the body of the note is a [`Note`] on the book.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockKind {
+    /// An editable table cell. Coordinates are zero based; continuation
+    /// paragraphs in the same cell carry the same coordinates.
+    TableCell {
+        /// Source table identity, stable within this book.
+        table: u64,
+        /// Row position.
+        row: usize,
+        /// Column position.
+        column: usize,
+        /// Total columns in the table.
+        columns: usize,
+        /// Number of columns occupied by a merged cell.
+        span: usize,
+        /// Source vertical merge extent; currently reflowed at its top row.
+        row_span: usize,
+        /// Relative column widths, in thousandths of a point.
+        widths: Vec<u32>,
+    },
     /// A body paragraph.
     #[default]
     Body,
@@ -352,7 +370,7 @@ pub struct Book {
 }
 
 impl Book {
-    /// A book with one part, one chapter, one section and one empty body block.
+    /// A plain document with one implicit, untitled flow and one empty body block.
     /// The caret is at the start of that block.
     pub fn new(title: impl Into<String>) -> Self {
         let mut ids = IdGen::new();
@@ -365,7 +383,7 @@ impl Book {
         };
         let chapter = Chapter {
             id: ids.chapter(),
-            title: "Chapter 1".to_string(),
+            title: String::new(),
             template: "Chapter".to_string(),
             sections: vec![section],
         };
@@ -489,12 +507,13 @@ impl Book {
         let count = chapters.clone().count();
         count > 1
             || chapters.any(|chapter| {
-                chapter.sections.iter().any(|section| {
-                    !section.heading.is_empty()
-                        || section.blocks.iter().any(|block| {
-                            matches!(block.kind(), BlockKind::ChapterTitle | BlockKind::Subhead)
-                        })
-                })
+                !chapter.title.is_empty()
+                    || chapter.sections.iter().any(|section| {
+                        !section.heading.is_empty()
+                            || section.blocks.iter().any(|block| {
+                                matches!(block.kind(), BlockKind::ChapterTitle | BlockKind::Subhead)
+                            })
+                    })
             })
     }
 
@@ -511,6 +530,79 @@ impl Book {
             return Ok(());
         }
         self.record(crate::edit::Change::RenameChapter { id, old, new })
+    }
+
+    /// Start a named chapter at `position`, moving the following text into it.
+    /// At the flow's first position this names the existing flow. Otherwise
+    /// the boundary and any paragraph split are one undoable transaction.
+    pub fn start_chapter_at(
+        &mut self,
+        position: Position,
+        title: impl Into<String>,
+    ) -> Result<ChapterId, ModelError> {
+        self.ensure_position(position)?;
+        let loc = self.loc(position.block)?;
+        let before = self.parts[loc.part].chapters[loc.chapter].clone();
+        let title = title.into();
+        if loc.section == 0 && loc.block == 0 && position.offset == 0 {
+            self.rename_chapter(before.id, title)?;
+            return Ok(before.id);
+        }
+        let mut leading = before.clone();
+        let sections = if loc.block == 0 && position.offset == 0 {
+            leading.sections.split_off(loc.section)
+        } else {
+            let rest = leading.sections.split_off(loc.section + 1);
+            let mut blocks = leading.sections[loc.section].blocks.split_off(loc.block);
+            if position.offset > 0 {
+                let mut head = blocks.remove(0);
+                let text = head.text();
+                let byte = crate::nav::byte_index(&text, position.offset);
+                let len = head.len_chars();
+                let mut tail = Block::new(
+                    self.ids.block(),
+                    head.kind.clone(),
+                    &text[byte..],
+                    runs::slice_runs(&head.runs, position.offset, len),
+                );
+                tail.align = head.align;
+                head.text.remove(position.offset..len);
+                head.runs = runs::slice_runs(&head.runs, 0, position.offset);
+                leading.sections[loc.section].blocks.push(head);
+                blocks.insert(0, tail);
+            }
+            let section = Section {
+                id: self.ids.section(),
+                heading: String::new(),
+                blocks,
+            };
+            std::iter::once(section).chain(rest).collect()
+        };
+        let id = self.ids.chapter();
+        let trailing = Chapter {
+            id,
+            title,
+            template: before.template.clone(),
+            sections,
+        };
+        let first = trailing
+            .sections
+            .iter()
+            .flat_map(|section| &section.blocks)
+            .next()
+            .ok_or(ModelError::Inconsistent("chapter has no text block"))?
+            .id;
+        self.record_at(
+            crate::edit::Change::SplitChapter {
+                part: loc.part,
+                index: loc.chapter,
+                before,
+                leading,
+                trailing,
+            },
+            Selection::collapsed(Position::new(first, 0)),
+        )?;
+        Ok(id)
     }
 
     /// Add a part titled `title` after the last. Returns its id.

@@ -7,6 +7,11 @@ use docwrite_app::{Editor, PromptKind, PromptMotion};
 #[test]
 fn rename_edits_in_the_middle_and_changes_the_title_only_on_commit() {
     let mut editor = Editor::new();
+    let chapter = editor.book().parts()[0].chapters()[0].id();
+    editor
+        .book_mut()
+        .rename_chapter(chapter, "Chapter 1")
+        .unwrap();
     let manuscript = editor.book().plain_text();
     let selection = editor.book().selection();
     editor.open_prompt(PromptKind::RenameChapter);

@@ -18,6 +18,15 @@ const SEPARATOR_H: f32 = 7.0;
 /// Menu width in logical pixels.
 const MENU_W: f32 = 360.0;
 
+/// Formatting choice offered by a toolbar dropdown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FormatChoice {
+    /// Body font size in half points.
+    Size(u16),
+    /// Index in the paragraph style list.
+    Style(usize),
+}
+
 /// One row of the File menu.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuItem {
@@ -27,6 +36,8 @@ pub struct MenuItem {
     pub shortcut: String,
     /// What choosing the row does; `None` for a heading or a disabled row.
     pub command: Option<TabCommand>,
+    /// Formatting choice, for a toolbar dropdown.
+    pub format: Option<FormatChoice>,
     /// A rule is drawn above this row.
     pub separator: bool,
 }
@@ -37,6 +48,7 @@ impl MenuItem {
             label: label.into(),
             shortcut: shortcut.into(),
             command: Some(command),
+            format: None,
             separator: false,
         }
     }
@@ -46,6 +58,7 @@ impl MenuItem {
             label: label.into(),
             shortcut: String::new(),
             command: None,
+            format: None,
             separator: false,
         }
     }
@@ -57,7 +70,7 @@ impl MenuItem {
 
     /// Whether the row can be chosen.
     pub fn enabled(&self) -> bool {
-        self.command.is_some()
+        self.command.is_some() || self.format.is_some()
     }
 }
 
@@ -78,6 +91,7 @@ pub struct FileMenu {
     pub h: i32,
     /// Physical pixels per logical pixel when it was laid out.
     scale: f32,
+    scroll: i32,
 }
 
 impl FileMenu {
@@ -95,6 +109,7 @@ impl FileMenu {
             w: (MENU_W * scale).round() as i32,
             h,
             scale,
+            scroll: 0,
         }
     }
 
@@ -110,7 +125,7 @@ impl FileMenu {
     /// The rectangle of row `index`: (top, height), in window pixels. The
     /// separator's own strip is excluded.
     pub fn row_rect(&self, index: usize) -> Option<(i32, i32)> {
-        let mut top = self.y + (4.0 * self.scale) as i32;
+        let mut top = self.y + (4.0 * self.scale) as i32 - self.scroll;
         for (i, item) in self.items.iter().enumerate() {
             let full = Self::row_height(item, self.scale);
             let row = (ROW_H * self.scale).round() as i32;
@@ -161,6 +176,15 @@ impl FileMenu {
             };
             if self.items[index].enabled() {
                 self.highlighted = Some(index);
+                if let Some((top, height)) = self.row_rect(index) {
+                    let inset = (4.0 * self.scale) as i32;
+                    if top < self.y + inset {
+                        self.scroll -= self.y + inset - top;
+                    }
+                    if top + height > self.y + self.h - inset {
+                        self.scroll += top + height - (self.y + self.h - inset);
+                    }
+                }
                 return;
             }
         }
@@ -168,6 +192,90 @@ impl FileMenu {
 }
 
 impl Editor {
+    /// Show the list of available body font sizes.
+    pub fn open_size_menu(&mut self) {
+        let mut sizes: Vec<u16> = vec![
+            12, 16, 18, 20, 22, 24, 28, 32, 36, 40, 44, 48, 52, 56, 64, 72,
+        ];
+        let current = (self.body_size() * 2.0).round() as u16;
+        sizes.push(current);
+        sizes.sort_unstable();
+        sizes.dedup();
+        let selected = sizes.iter().position(|size| *size == current);
+        let items = sizes
+            .into_iter()
+            .map(|size| MenuItem {
+                label: format!("{} pt", f32::from(size) / 2.0),
+                shortcut: String::new(),
+                command: None,
+                format: Some(FormatChoice::Size(size)),
+                separator: false,
+            })
+            .collect();
+        self.open_format_menu(crate::Action::FontSize, items, selected, 96.0);
+    }
+
+    /// Show the paragraph styles, without changing the selection.
+    pub fn open_style_menu(&mut self) {
+        let selected = crate::toolbar::KINDS
+            .iter()
+            .position(|(label, _)| *label == self.current_style_label());
+        let items = crate::toolbar::KINDS
+            .iter()
+            .enumerate()
+            .map(|(index, (label, _))| MenuItem {
+                label: (*label).into(),
+                shortcut: String::new(),
+                command: None,
+                format: Some(FormatChoice::Style(index)),
+                separator: false,
+            })
+            .collect();
+        self.open_format_menu(crate::Action::ParagraphStyle, items, selected, 150.0);
+    }
+
+    fn open_format_menu(
+        &mut self,
+        action: crate::Action,
+        items: Vec<MenuItem>,
+        selected: Option<usize>,
+        width: f32,
+    ) {
+        self.abandon_footnote();
+        self.cancel_pointer();
+        let x = self
+            .toolbar_buttons(self.frame_width)
+            .iter()
+            .find(|button| button.action == action)
+            .map_or(0, |button| button.x);
+        let mut menu = FileMenu::new(items, x, self.toolbar_height(), self.ui_scale);
+        menu.w = ((width * self.ui_scale).round() as i32).min(self.frame_width.max(1));
+        menu.x = x.min((self.frame_width - menu.w).max(0));
+        menu.h = menu
+            .h
+            .min((self.frame_height - menu.y).max((30.0 * self.ui_scale) as i32));
+        menu.highlighted = selected;
+        if let Some(index) = selected
+            && let Some((top, height)) = menu.row_rect(index)
+        {
+            menu.scroll = (top + height - (menu.y + menu.h - (4.0 * self.ui_scale) as i32)).max(0);
+        }
+        self.menu = Some(menu);
+    }
+
+    pub(crate) fn menu_scroll(&mut self, delta: f32) -> bool {
+        let Some(menu) = self.menu.as_mut() else {
+            return false;
+        };
+        let content: i32 = menu
+            .items
+            .iter()
+            .map(|item| FileMenu::row_height(item, menu.scale))
+            .sum::<i32>()
+            + (8.0 * menu.scale) as i32;
+        menu.scroll = (menu.scroll - delta.round() as i32).clamp(0, (content - menu.h).max(0));
+        true
+    }
     /// Tell the menu which files were opened recently, newest first. The
     /// window host keeps the list; the menu shows it.
     pub fn set_recent_files(&mut self, paths: Vec<PathBuf>) {
@@ -253,6 +361,19 @@ impl Editor {
 
     /// Choose row `index`: the command goes to the host and the menu closes.
     pub fn choose_menu_item(&mut self, index: usize) -> bool {
+        if let Some(format) = self
+            .menu
+            .as_ref()
+            .and_then(|menu| menu.items.get(index))
+            .and_then(|item| item.format)
+        {
+            self.menu = None;
+            match format {
+                FormatChoice::Size(size) => self.set_body_size(f32::from(size) / 2.0),
+                FormatChoice::Style(index) => self.set_block_kind_number(index),
+            }
+            return true;
+        }
         let Some(command) = self
             .menu
             .as_ref()
@@ -283,6 +404,11 @@ impl Editor {
             }
             KeyInput::Up => {
                 menu.step(false);
+                true
+            }
+            KeyInput::Home | KeyInput::End => {
+                menu.highlighted = None;
+                menu.step(*key == KeyInput::Home);
                 true
             }
             KeyInput::Enter | KeyInput::Right => {
@@ -371,6 +497,7 @@ impl Editor {
         );
         let size = 11.0 * s;
         let inset = (12.0 * s) as i32;
+        painter.push_clip(liminalkit_raster::Rect::new(menu.x, menu.y, menu.w, menu.h));
         for (index, item) in menu.items.iter().enumerate() {
             let Some((top, h)) = menu.row_rect(index) else {
                 continue;
@@ -431,6 +558,7 @@ impl Editor {
             }
             painter.pop_clip();
         }
+        painter.pop_clip();
     }
 }
 

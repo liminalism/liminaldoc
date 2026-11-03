@@ -35,7 +35,7 @@ fn route(args: &[OsString]) -> Result<(Mode, &[OsString]), String> {
             return Ok((Mode::Reader, args));
         }
         if first == "--help" || first == "-h" {
-            return Err("usage: liminaldoc [DOCUMENT.pdf|DOCUMENT.legebook|DOCUMENT.docx|DOCUMENT.odt|DOCUMENT.md|DOCUMENT.txt]\n       liminaldoc --reader [PDF] | --writer [DOCUMENT]\n       liminaldoc export BOOK.legebook OUTPUT".into());
+            return Err("usage: liminaldoc [DOCUMENT.pdf|DOCUMENT.legebook|DOCUMENT.docx|DOCUMENT.pages|DOCUMENT.odt|DOCUMENT.md|DOCUMENT.txt]\n       liminaldoc --reader [PDF] | --writer [DOCUMENT]\n       liminaldoc export BOOK.legebook OUTPUT".into());
         }
         // Content wins over the extension: a PDF with a wrong or missing
         // suffix still reaches the reader. (This scan duplicates the reader's

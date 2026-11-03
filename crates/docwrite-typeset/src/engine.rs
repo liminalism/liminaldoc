@@ -336,6 +336,8 @@ impl Geometry {
 /// How a paragraph participates in pagination.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParagraphStyle {
+    /// Table identity and row, when this paragraph is a cell.
+    pub table_row: Option<(u64, usize)>,
     /// Hyphenate at line ends.
     pub hyphenate: bool,
     /// Keep the last line with the next paragraph.
@@ -387,6 +389,7 @@ pub enum Alignment {
 impl Default for ParagraphStyle {
     fn default() -> Self {
         Self {
+            table_row: None,
             hyphenate: false,
             keep_with_next: false,
             keep_lines: false,
@@ -481,6 +484,8 @@ pub struct Cursor {
 
 #[derive(Clone, Debug)]
 struct FlowLine {
+    /// Explicit top within the page for cells sharing a row.
+    page_y: Option<f32>,
     paragraph: usize,
     line: u32,
     height: f32,
@@ -946,9 +951,13 @@ impl Document {
                             .unwrap_or(self.geometry.leading);
                         // The text sits centred in its leading, at the bottom
                         // of the line box (a drop-cap line's box is taller).
-                        let bottom = top + line.height - after;
+                        let line_top = line
+                            .page_y
+                            .map(|y| self.rules(Self::page_paragraph(page)).margin_top + y)
+                            .unwrap_or(top);
+                        let bottom = line_top + line.height - after;
                         let baseline = bottom - (leading - em).max(0.0) / 2.0 - em * 0.2;
-                        top += line.height;
+                        top = top.max(line_top + line.height);
                         PaintedLine {
                             paragraph: line.paragraph,
                             glyphs: line.glyphs.as_ref().clone(),
@@ -1572,6 +1581,7 @@ impl Document {
                     height += cap_room;
                 }
                 FlowLine {
+                    page_y: None,
                     paragraph: index,
                     line: line_index as u32,
                     height,
@@ -1924,6 +1934,52 @@ impl Document {
             if self.refuses_recto(line, !lines.is_empty(), verso) {
                 break;
             }
+            if cursor.line == 0
+                && let Some(key) = style.table_row
+            {
+                let mut end = cursor.paragraph;
+                while end < self.paragraphs.len()
+                    && self.paragraphs[end].style.table_row == Some(key)
+                    && (end == cursor.paragraph
+                        || !self.hints.break_at.get(end).copied().unwrap_or(false))
+                {
+                    end += 1;
+                }
+                // Cells have the same left indent as their continuation paragraphs.
+                let mut offsets = std::collections::HashMap::<u32, f32>::new();
+                let mut row_lines = Vec::new();
+                let mut height = 0.0_f32;
+                for p in cursor.paragraph..end {
+                    let column = self.paragraphs[p].style.left_indent.to_bits();
+                    let offset = offsets.entry(column).or_default();
+                    for source in &self.lines[p] {
+                        let mut cell_line = source.clone();
+                        cell_line.page_y = Some(used + *offset);
+                        *offset += cell_line.height;
+                        height = height.max(*offset);
+                        row_lines.push(cell_line);
+                    }
+                }
+                // Very tall rows flow cell by cell across pages, keeping every
+                // character reachable. Ordinary rows stay together in columns.
+                if (cursor.paragraph..end).all(|p| self.paragraphs[p].note.is_none())
+                    && height <= limit - self.notes_height(notes.len())
+                {
+                    if used + height + self.notes_height(notes.len()) > limit && !lines.is_empty() {
+                        break;
+                    }
+                    lines.extend(row_lines);
+                    used += height;
+                    cursor = Cursor {
+                        paragraph: end,
+                        line: 0,
+                    };
+                    continue;
+                }
+            }
+            if self.refuses_recto(line, !lines.is_empty(), verso) {
+                break;
+            }
             let note_h = self.notes_height(notes.len());
             let brings_note = line.is_first && line.note.is_some();
             // A new note needs its first line on this page, unless earlier
@@ -2020,7 +2076,8 @@ impl Document {
             return false;
         }
         if self.paragraphs.iter().any(|paragraph| {
-            paragraph.note.is_some()
+            paragraph.style.table_row.is_some()
+                || paragraph.note.is_some()
                 || paragraph.style.keep_with_next
                 || paragraph.style.name == "Image"
                 || paragraph.style.name == "Caption"

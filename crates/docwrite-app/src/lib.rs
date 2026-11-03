@@ -11,6 +11,7 @@ pub mod recent;
 pub mod recovery;
 mod research;
 mod scrollbar;
+mod selection;
 pub mod tabs;
 mod toolbar;
 mod trace;
@@ -35,7 +36,7 @@ pub use trace::{FrameMetrics, InputTrace, ReplayStep, TraceCommand};
 use view::Sidebar;
 pub use view::{NIGHT, PAPER, PointerShape, SANZO_EARTH, SANZO_SEA, Theme, WARM, WORDPERFECT};
 
-use docwrite_model::{Book, Direction, Motion, NoteId, Selection};
+use docwrite_model::{Book, Direction, Motion, NoteId, Position, Selection};
 use docwrite_typeset::{
     Document, EditReport, Face, GlyphAtlas, NOTE_MARK_CLUSTER, from_book_with, update_from_book,
 };
@@ -94,9 +95,12 @@ pub struct Editor {
     atlas: GlyphAtlas,
     preedit: String,
     caret: Option<CaretRect>,
+    /// A soft line end shares a text position with the next line's start.
+    line_end: Option<(Position, u32, usize)>,
     map: Map,
     cursor: (f32, f32),
     pressed_row: Option<usize>,
+    text_pointer: selection::TextPointer,
     bundle: Option<PathBuf>,
     dirty: bool,
     /// Counts edits, so an untitled draft is written to recovery only when changed.
@@ -135,6 +139,8 @@ pub struct Editor {
     replacing: Option<String>,
     /// A toolbar prompt taking typed text, when one is open.
     prompt: Option<Prompt>,
+    /// Chapter and optional insertion point captured when its prompt opened.
+    chapter_target: Option<(docwrite_model::ChapterId, Option<Position>)>,
     file_command: Option<tabs::TabCommand>,
     /// A footnote being typed at the foot of the page, when one is open.
     /// Prompts and footnote sessions never overlap.
@@ -190,9 +196,11 @@ impl Editor {
             atlas: GlyphAtlas::new(),
             preedit: String::new(),
             caret: None,
+            line_end: None,
             map: Map::new(),
             cursor: (0.0, 0.0),
             pressed_row: None,
+            text_pointer: selection::TextPointer::default(),
             bundle: None,
             dirty: false,
             revision: 0,
@@ -216,6 +224,7 @@ impl Editor {
             last_find: None,
             replacing: None,
             prompt: None,
+            chapter_target: None,
             file_command: None,
             footnote: None,
             frame_width: 0,
@@ -263,6 +272,10 @@ impl Editor {
     /// this on cursor motion.
     pub fn hover(&mut self, x: f32, y: f32) {
         self.cursor = (x, y);
+        if self.text_pointer.drag.is_some() {
+            self.drag_text();
+            return;
+        }
         self.menu_hover(x, y);
         self.scrollbar_drag(y);
         self.drag_sidebar(x);
@@ -272,6 +285,23 @@ impl Editor {
     /// Press or release the pointer. A drag from one chapter row to another
     /// reorders the book. A click collapses the part or chapter under the pointer.
     pub fn pointer(&mut self, pressed: bool) {
+        self.pointer_with_shift(pressed, false);
+    }
+
+    /// Press or release the pointer, preserving Shift-click selection.
+    pub fn pointer_with_shift(&mut self, pressed: bool, shift: bool) {
+        if !pressed && self.text_pointer.drag.is_some() {
+            self.drag_text();
+            let follow = self
+                .text_pointer
+                .drag
+                .take()
+                .is_some_and(|drag| drag.citation);
+            if follow && self.book.selection().is_collapsed() {
+                self.follow_citation();
+            }
+            return;
+        }
         // A click goes where it lands; it never returns to a footnote anchor.
         self.abandon_footnote();
         if self.menu_pointer(pressed) {
@@ -302,7 +332,7 @@ impl Editor {
         }
         if self.cursor.0 >= self.sidebar_width() as f32 {
             if pressed {
-                self.click_at(self.cursor.0, self.cursor.1, false);
+                self.begin_text_selection(shift);
             }
             return;
         }
@@ -392,18 +422,21 @@ impl Editor {
 
     /// Move the caret one character back.
     pub fn move_left(&mut self) {
+        self.line_end = None;
         let _ = self.book.move_caret(Motion::Char(Direction::Backward));
         self.follow_caret = true;
     }
 
     /// Move the caret one character on.
     pub fn move_right(&mut self) {
+        self.line_end = None;
         let _ = self.book.move_caret(Motion::Char(Direction::Forward));
         self.follow_caret = true;
     }
 
     /// Extend the selection one character back.
     pub fn extend_left(&mut self) {
+        self.line_end = None;
         let _ = self
             .book
             .extend_selection(Motion::Char(Direction::Backward));
@@ -412,6 +445,7 @@ impl Editor {
 
     /// Extend the selection one character on.
     pub fn extend_right(&mut self) {
+        self.line_end = None;
         let _ = self.book.extend_selection(Motion::Char(Direction::Forward));
         self.follow_caret = true;
     }
@@ -570,6 +604,41 @@ impl Editor {
             // back exactly where the hotkey found it.
             origin -= (origin + page_h - height).max(0);
         }
+        // Build the hit geometry before painting, so edge scrolling can
+        // extend a held selection before its highlight is drawn.
+        let count = self
+            .document
+            .as_ref()
+            .map_or(1, |document| document.page_count()) as i32;
+        for slot in -1..4 {
+            let row = first + slot;
+            if row < 0 {
+                continue;
+            }
+            let top = origin + slot * (page_h + gap);
+            let row_left = content_left + (content_w - page_w * per_row) / 2;
+            for column in 0..per_row {
+                let number = if per_row == 2 {
+                    row * 2 + column
+                } else {
+                    row + 1
+                };
+                if number < 1 || number > count {
+                    continue;
+                }
+                self.slots.push(PageSlot {
+                    page: number as u32,
+                    left: row_left + column * page_w,
+                    top,
+                    width: page_w,
+                    height: page_h,
+                    scale: (page_w as f32 / trim_w.max(1.0))
+                        .min(page_h as f32 / trim_h.max(1.0))
+                        .max(0.05),
+                });
+            }
+        }
+        self.drag_text();
         let document = self.document.take();
         self.pages_painted = document.as_ref().map(|laid| laid.page_count()).unwrap_or(0);
         let last_page = if document.is_some() {
@@ -670,18 +739,43 @@ impl Editor {
         }
         let defs = family_defs();
         let count = defs.len();
+        // Prefer a family that can display the manuscript's scripts. A font
+        // with Latin coverage alone otherwise turns Thai imports into boxes.
+        let mut characters = std::collections::BTreeSet::new();
+        for block in self.book.blocks() {
+            characters.extend(block.text().chars().filter(|c| !c.is_control()));
+        }
+        let probe: String = characters.into_iter().collect();
+        let mut fallback = None;
         for step in 0..count {
             let index = (self.family_index + step) % count.max(1);
             if let Some(def) = defs.get(index)
                 && let Some(loaded) = load_family_def(def)
             {
+                let covered = loaded
+                    .first()
+                    .and_then(|(face, _)| face.shape(&probe, 12.0, &[]).ok())
+                    .is_some_and(|glyphs| glyphs.iter().all(|g| g.id != 0));
                 let (faces, font_files): (Vec<Face>, Vec<Vec<u8>>) = loaded.into_iter().unzip();
+                if !covered && def.name != "Custom" {
+                    if fallback.is_none() {
+                        fallback = Some((faces, font_files, index, def.name));
+                    }
+                    continue;
+                }
+                let name = def.name;
                 self.faces = faces;
                 self.font_files = font_files;
                 self.family_index = index;
-                self.family_name = def.name.to_string();
+                self.family_name = name.to_string();
                 return;
             }
+        }
+        if let Some((faces, font_files, index, name)) = fallback {
+            self.faces = faces;
+            self.font_files = font_files;
+            self.family_index = index;
+            self.family_name = name.to_string();
         }
     }
 
@@ -736,8 +830,14 @@ impl Editor {
         let Some(document) = self.document.as_ref() else {
             return;
         };
-        let page = focus_mark(&self.book, document)
-            .and_then(|(paragraph, byte)| document.page_of(paragraph, byte));
+        let page = self
+            .line_end
+            .filter(|(position, _, _)| *position == self.book.selection().focus)
+            .map(|(_, page, _)| page)
+            .or_else(|| {
+                focus_mark(&self.book, document)
+                    .and_then(|(paragraph, byte)| document.page_of(paragraph, byte))
+            });
         let shown = |page: u32| {
             if self.pager.is_spread() {
                 page / 2 == self.pager.page_top() / 2
@@ -752,37 +852,21 @@ impl Editor {
                 && !self.fullscreen
                 && let Some(slot) = self.slots.iter().find(|slot| slot.page == page)
                 && slot.height > self.frame_height - self.toolbar_height()
-                && let Some((paragraph, byte)) = focus_mark(&self.book, document)
+                && let Some((_, line)) = self.caret_line()
             {
-                let line = document
-                    .page_painted_lines(page)
-                    .into_iter()
-                    .filter(|line| line.paragraph == paragraph)
-                    .filter(|line| {
-                        line.glyphs
-                            .iter()
-                            .filter(|g| g.cluster < NOTE_MARK_CLUSTER)
-                            .map(|g| g.cluster as usize)
-                            .min()
-                            .unwrap_or(0)
-                            <= byte
-                    })
-                    .last();
-                if let Some(line) = line {
-                    let scale = slot.width as f32 / document.geometry().page_width;
-                    let y = slot.top as f32 + line.baseline * scale;
-                    let upper = self.toolbar_height() as f32 + line.em * scale;
-                    let lower = self.frame_height as f32 - line.em * scale;
-                    let delta = if y > lower {
-                        y - lower
-                    } else if y < upper {
-                        y - upper
-                    } else {
-                        0.0
-                    };
-                    self.pager
-                        .scroll_by(f64::from(delta) / self.row_pitch * f64::from(self.per_row));
-                }
+                let scale = slot.width as f32 / document.geometry().page_width;
+                let y = slot.top as f32 + line.baseline * scale;
+                let upper = self.toolbar_height() as f32 + line.em * scale;
+                let lower = self.frame_height as f32 - line.em * scale;
+                let delta = if y > lower {
+                    y - lower
+                } else if y < upper {
+                    y - upper
+                } else {
+                    0.0
+                };
+                self.pager
+                    .scroll_by(f64::from(delta) / self.row_pitch * f64::from(self.per_row));
             }
         }
     }
@@ -868,14 +952,6 @@ impl Editor {
         let scale = (page_w as f32 / geometry.page_width.max(1.0))
             .min(page_h as f32 / geometry.page_height.max(1.0))
             .max(0.05);
-        self.slots.push(PageSlot {
-            page,
-            left,
-            top,
-            width: page_w,
-            height: page_h,
-            scale,
-        });
         painter.push_clip(liminalkit_raster::Rect::new(left, top, page_w, page_h));
         if let Some(head) = document.page_running_head(page) {
             self.paint_page_label(
@@ -905,6 +981,9 @@ impl Editor {
         let mut caret_y = top + geometry.margin_top as i32;
         let mut saw_focus = false;
         let face = document.face();
+        let line_end = self
+            .line_end
+            .filter(|(position, _, _)| *position == self.book.selection().focus);
         for line in lines.iter() {
             let baseline = top + (line.baseline * scale) as i32;
             let start_x = left as f32 + (inset + line.indent) * scale;
@@ -918,6 +997,8 @@ impl Editor {
             if let Some((paragraph, focus_byte)) = focus
                 && paragraph == line.paragraph
                 && line_start <= focus_byte
+                && line_end
+                    .is_none_or(|(_, end_page, start)| end_page == page && line_start == start)
             {
                 // Lines come in order, so the last line of the paragraph that
                 // starts at or before the caret is the caret's line.
@@ -1659,3 +1740,5 @@ impl Drop for Editor {
         }
     }
 }
+
+mod pages;

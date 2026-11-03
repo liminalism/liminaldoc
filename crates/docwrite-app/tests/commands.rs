@@ -110,7 +110,9 @@ fn up_and_down_follow_typeset_lines_across_pages() {
     );
     assert!(editor.caret_area().is_some());
     editor.move_home(false);
-    assert_eq!(caret(&editor).1, 0);
+    let line_start = caret(&editor);
+    editor.move_home(false);
+    assert_eq!(caret(&editor), line_start);
     editor.move_end(true);
     assert!(!editor.book().selection().is_collapsed());
 }
@@ -367,7 +369,7 @@ fn imported_text_saves_as_native_book_without_overwriting_source() {
 }
 
 #[test]
-fn the_caret_is_drawn_on_its_own_line_of_a_wrapped_paragraph() {
+fn home_and_end_stay_on_the_displayed_line_of_a_wrapped_paragraph() {
     let mut editor = editor_with(1);
     let first = editor.book().block_ids()[0];
     let mut frame = liminalkit_raster::WindowBuffer::new(1100, 800);
@@ -380,10 +382,39 @@ fn the_caret_is_drawn_on_its_own_line_of_a_wrapped_paragraph() {
     editor.move_end(false);
     editor.paint(&mut frame);
     let late = editor.caret_area().unwrap();
+    assert_eq!(late.y, early.y, "End stays on the current line");
+    assert!(late.x > early.x);
+    editor.move_line(true, false);
+    editor.move_home(false);
+    editor.paint(&mut frame);
+    let second = editor.caret_area().unwrap();
+    assert!(second.y > early.y + 10.0);
     assert!(
-        late.y > early.y + 10.0,
-        "the paragraph's start and end are on different lines: {early:?} {late:?}"
+        editor.book().selection().focus.offset > 0,
+        "Home stays on the wrapped line"
     );
+    let start = editor.book().selection().focus;
+    editor.move_end(true);
+    assert_eq!(editor.book().selection().anchor, start);
+    assert!(editor.book().selection().focus.offset > start.offset);
+}
+
+#[test]
+fn word_deletion_replaces_selections_and_undo_restores_them() {
+    let mut editor = Editor::new_document("Words");
+    editor.type_text("alpha bravo\ncharlie");
+    editor.delete_word(false);
+    assert_eq!(editor.book().plain_text(), "alpha bravo\n");
+    editor.undo();
+    assert_eq!(editor.book().plain_text(), "alpha bravo\ncharlie");
+    editor.move_document_start(false);
+    editor.delete_word(true);
+    assert_eq!(editor.book().plain_text(), " bravo\ncharlie");
+    editor.undo();
+    editor.move_document_start(false);
+    editor.extend_right();
+    editor.delete_word(true);
+    assert_eq!(editor.book().plain_text(), "lpha bravo\ncharlie");
 }
 
 #[test]

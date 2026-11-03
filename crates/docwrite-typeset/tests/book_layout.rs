@@ -16,6 +16,8 @@ fn face() -> Face {
 #[test]
 fn next_recto_inserts_a_blank_verso_with_a_folio_and_running_head() {
     let mut book = Book::new("Essay");
+    let first_chapter = book.parts()[0].chapters()[0].id();
+    book.rename_chapter(first_chapter, "Chapter 1").unwrap();
     book.insert("One.").unwrap();
     let part = book.parts()[0].id();
     book.add_chapter(part, "Second").unwrap();

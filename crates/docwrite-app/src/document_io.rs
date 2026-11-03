@@ -53,6 +53,9 @@ pub(crate) fn import_book(path: &Path) -> Result<Book, String> {
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
+    if extension == "pages" {
+        return crate::pages::import(path);
+    }
     let paragraphs = match extension.as_str() {
         "txt" => plain_paragraphs(&read_limited(File::open(path).map_err(io_error)?)?),
         "md" | "markdown" => {
@@ -69,9 +72,7 @@ pub(crate) fn import_book(path: &Path) -> Result<Book, String> {
         .file_stem()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Untitled".into());
-    let mut book = Book::new(title.clone());
-    let chapter = book.parts()[0].chapters()[0].id();
-    book.rename_chapter(chapter, title).map_err(model_error)?;
+    let mut book = Book::new(title);
     let plain = paragraphs
         .iter()
         .flat_map(|paragraph| paragraph.spans.iter())
@@ -428,7 +429,7 @@ mod tests {
             } else {
                 "Heading"
             }));
-            if extension == "docx" {
+            if extension == "odt" {
                 assert!(matches!(
                     editor.book().blocks().next().unwrap().kind(),
                     BlockKind::Subhead
@@ -466,9 +467,9 @@ mod tests {
 
         let editor = crate::Editor::open_document(&path).unwrap();
         let reopened = editor.book();
-        // The chapter title imports first, as a subhead; the body follows it.
-        assert_eq!(reopened.block_ids().len(), 2);
-        let body = reopened.block(reopened.block_ids()[1]).unwrap();
+        // A plain document has no implicit chapter heading to import.
+        assert_eq!(reopened.block_ids().len(), 1);
+        let body = reopened.block(reopened.block_ids()[0]).unwrap();
         assert_eq!(body.text(), "One bold and one italic word.");
         let marks_at = |offset| {
             body.runs()

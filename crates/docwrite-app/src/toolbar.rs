@@ -9,8 +9,8 @@ use crate::{Editor, Prompt};
 /// Height of one toolbar row in logical pixels.
 pub const TOOLBAR_H: f32 = 24.0;
 
-/// Paragraph kinds the style button cycles through, with their labels.
-const KINDS: [(&str, BlockKind); 7] = [
+/// Paragraph kinds offered by the style dropdown.
+pub(crate) const KINDS: [(&str, BlockKind); 7] = [
     ("Body", BlockKind::Body),
     ("Subhead", BlockKind::Subhead),
     ("Block Quote", BlockKind::BlockQuote),
@@ -29,18 +29,14 @@ pub enum Action {
     File(crate::tabs::TabCommand),
     /// Toggle a character mark.
     Mark(Mark),
-    /// Set the next paragraph style.
-    CycleStyle,
+    /// Choose a paragraph style from a list.
+    ParagraphStyle,
     /// Set the next paragraph alignment.
     CycleAlign,
-    /// Body text half a point smaller.
-    Smaller,
-    /// Body text half a point larger.
-    Larger,
-    /// Add a chapter.
-    NewChapter,
-    /// Rename the caret's chapter.
-    RenameChapter,
+    /// Choose the body font size from a list.
+    FontSize,
+    /// Add or rename the chapter starting on the visible page.
+    Chapter,
     /// Attach a footnote.
     Footnote,
     /// Attach an endnote.
@@ -56,6 +52,8 @@ pub enum Action {
 /// What a prompt's text is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PromptKind {
+    /// Name the chapter beginning on the visible page.
+    Chapter,
     /// A physical page number to navigate to.
     GoToPage,
     /// Application autosave interval in whole minutes.
@@ -89,6 +87,7 @@ pub enum PromptKind {
 impl PromptKind {
     fn label(self) -> &'static str {
         match self {
+            Self::Chapter => "Chapter title:",
             Self::GoToPage => "Go to page:",
             Self::AutosaveInterval => "Autosave minutes (15–120):",
             Self::NewChapter => "New chapter title:",
@@ -154,6 +153,7 @@ impl Editor {
             .block(focus.block)
             .map(|block| block.kind().clone());
         match kind {
+            Ok(BlockKind::TableCell { .. }) => "Table Cell",
             Ok(BlockKind::ChapterTitle) => "Chapter Title",
             Ok(BlockKind::Image { .. }) => "Image",
             Ok(BlockKind::BibliographyEntry) => "Bibliography",
@@ -192,7 +192,9 @@ impl Editor {
         push(
             Action::FileMenu,
             "File".into(),
-            self.menu.is_some(),
+            self.menu
+                .as_ref()
+                .is_some_and(|menu| menu.items.iter().any(|item| item.command.is_some())),
             36.0,
             30.0,
         );
@@ -225,7 +227,17 @@ impl Editor {
             "Bibliography" if compact => "Biblio",
             label => label,
         };
-        push(Action::CycleStyle, format!("¶ {style}"), false, 82.0, 48.0);
+        push(
+            Action::ParagraphStyle,
+            style.to_string(),
+            self.menu.as_ref().is_some_and(|menu| {
+                menu.items
+                    .iter()
+                    .any(|item| matches!(item.format, Some(crate::menu::FormatChoice::Style(_))))
+            }),
+            90.0,
+            58.0,
+        );
         let align = self.current_alignment_label();
         push(
             Action::CycleAlign,
@@ -238,16 +250,18 @@ impl Editor {
             64.0,
             40.0,
         );
-        push(Action::Smaller, "A-".into(), false, 24.0, 20.0);
-        push(Action::Larger, "A+".into(), false, 24.0, 20.0);
-        push(Action::NewChapter, "+ Ch".into(), false, 42.0, 30.0);
         push(
-            Action::RenameChapter,
-            if compact { "Ren" } else { "Rename" }.into(),
-            false,
+            Action::FontSize,
+            format!("{}", self.body_size()),
+            self.menu.as_ref().is_some_and(|menu| {
+                menu.items
+                    .iter()
+                    .any(|item| matches!(item.format, Some(crate::menu::FormatChoice::Size(_))))
+            }),
             48.0,
-            30.0,
+            40.0,
         );
+        push(Action::Chapter, "Chapter".into(), false, 60.0, 46.0);
         push(
             Action::Footnote,
             if compact { "Fn" } else { "Footnote" }.into(),
@@ -292,12 +306,10 @@ impl Editor {
             Action::FileMenu => self.toggle_file_menu(),
             Action::File(command) => self.file_command = Some(command),
             Action::Mark(mark) => self.toggle_mark(mark),
-            Action::CycleStyle => self.cycle_block_style(),
+            Action::ParagraphStyle => self.open_style_menu(),
             Action::CycleAlign => self.cycle_alignment(),
-            Action::Smaller => self.change_body_size(-0.5),
-            Action::Larger => self.change_body_size(0.5),
-            Action::NewChapter => self.open_prompt(PromptKind::NewChapter),
-            Action::RenameChapter => self.open_prompt(PromptKind::RenameChapter),
+            Action::FontSize => self.open_size_menu(),
+            Action::Chapter => self.open_chapter_prompt(),
             Action::Footnote => self.open_prompt(PromptKind::Footnote),
             Action::Endnote => self.open_prompt(PromptKind::Endnote),
             Action::OpenSource => self.open_prompt(PromptKind::OpenSource),
@@ -434,6 +446,27 @@ impl Editor {
     /// Make the body text `delta` points larger (smaller when negative);
     /// the first paragraph follows, and leading keeps its proportion.
     pub fn change_body_size(&mut self, delta: f32) {
+        self.set_body_size((self.body_size() + delta).clamp(6.0, 36.0));
+    }
+
+    /// The current body font size in points.
+    pub fn body_size(&self) -> f32 {
+        self.book
+            .paragraph_styles()
+            .iter()
+            .find(|style| style.name == "Body")
+            .map_or(12.0, |style| style.size_pt)
+    }
+
+    /// Choose the body and first-paragraph size, preserving proportional leading.
+    pub fn set_body_size(&mut self, size: f32) {
+        if !size.is_finite() {
+            return;
+        }
+        let size = size.clamp(6.0, 36.0);
+        if size == self.body_size() {
+            return;
+        }
         for name in ["Body", "First Paragraph"] {
             let Some(mut style) = self
                 .book
@@ -444,7 +477,6 @@ impl Editor {
             else {
                 continue;
             };
-            let size = (style.size_pt + delta).clamp(6.0, 36.0);
             style.leading_pt *= size / style.size_pt;
             style.size_pt = size;
             let _ = self.book.set_paragraph_style(style);
@@ -454,6 +486,7 @@ impl Editor {
 
     /// Show a prompt in the toolbar; typing goes to it until Enter or Esc.
     pub fn open_prompt(&mut self, kind: PromptKind) {
+        self.close_file_menu();
         // Prompts and footnote sessions never overlap: the caret goes home.
         self.end_footnote();
         if kind == PromptKind::GoToPage {
@@ -463,6 +496,16 @@ impl Editor {
             PromptKind::GoToPage => (self.pager.page_top() + 1)
                 .min(self.pager.pages())
                 .to_string(),
+            PromptKind::Chapter => self
+                .chapter_target
+                .and_then(|(id, _)| {
+                    self.book
+                        .parts()
+                        .iter()
+                        .flat_map(|part| part.chapters())
+                        .find(|chapter| chapter.id() == id)
+                })
+                .map_or(String::new(), |chapter| chapter.title().to_string()),
             PromptKind::RenameChapter => self.current_chapter_title().unwrap_or_default(),
             PromptKind::Find | PromptKind::Replace => self.last_find.clone().unwrap_or_default(),
             _ => String::new(),
@@ -483,6 +526,7 @@ impl Editor {
 
     /// Close the prompt without acting.
     pub fn cancel_prompt(&mut self) -> bool {
+        self.chapter_target = None;
         self.prompt.take().is_some()
     }
 
@@ -493,6 +537,28 @@ impl Editor {
         };
         let text = prompt.text.trim().to_string();
         match prompt.kind {
+            PromptKind::Chapter => {
+                if text.is_empty() {
+                    prompt.error = Some("Enter a chapter title, or Escape to cancel:".into());
+                    self.prompt = Some(prompt);
+                } else if let Some((id, position)) = self.chapter_target.take() {
+                    let result = match position {
+                        Some(position) => self.book.start_chapter_at(position, text),
+                        None => self.book.rename_chapter(id, text).map(|()| id),
+                    };
+                    match result {
+                        Ok(chapter) => {
+                            self.edited();
+                            self.go_to_chapter(chapter);
+                        }
+                        Err(error) => {
+                            prompt.error = Some(error.to_string());
+                            self.prompt = Some(prompt);
+                            self.chapter_target = Some((id, position));
+                        }
+                    }
+                }
+            }
             PromptKind::AutosaveInterval => match crate::autosave::AutosaveInterval::parse(&text) {
                 Ok(interval) => self.autosave_request = Some(interval),
                 Err(error) => {
@@ -617,6 +683,87 @@ impl Editor {
             _ => {}
         }
         true
+    }
+
+    /// Name or rename a chapter at the top of the visible page.
+    pub fn open_chapter_prompt(&mut self) {
+        self.refresh_layout();
+        let page = self.pager.page_top() + 1;
+        let Some(document) = self.document.as_ref() else {
+            return;
+        };
+        let target = self
+            .book
+            .parts()
+            .iter()
+            .flat_map(|part| part.chapters())
+            .find_map(|chapter| {
+                let first = chapter
+                    .sections()
+                    .iter()
+                    .flat_map(|section| section.blocks())
+                    .next()?;
+                let paragraph = document.paragraph_of(first.id().raw())?;
+                let start_page = document.page_of(paragraph, 0)?;
+                // A long title may put the first body block on a later page.
+                let title_page = document
+                    .paragraph_of(docwrite_typeset::CHAPTER_TITLE_ID | chapter.id().raw())
+                    .and_then(|paragraph| document.page_of(paragraph, 0))
+                    .unwrap_or(start_page);
+                (page >= title_page && page <= start_page).then_some((
+                    chapter.id(),
+                    if chapter.title().is_empty() {
+                        Some(Position::new(first.id(), 0))
+                    } else {
+                        None
+                    },
+                ))
+            })
+            .or_else(|| {
+                let position = document.page_painted_lines(page).iter().find_map(|line| {
+                    let raw = document.paragraphs()[line.paragraph].id;
+                    let block = self
+                        .book
+                        .block_ids()
+                        .into_iter()
+                        .find(|id| id.raw() == raw)?;
+                    let byte = line
+                        .glyphs
+                        .iter()
+                        .filter(|glyph| glyph.cluster < docwrite_typeset::NOTE_MARK_CLUSTER)
+                        .map(|glyph| glyph.cluster as usize)
+                        .min()
+                        .unwrap_or(0);
+                    let text = self.book.block(block).ok()?.text();
+                    Some(Position::new(block, text.get(..byte)?.chars().count()))
+                })?;
+                let chapter = self
+                    .book
+                    .parts()
+                    .iter()
+                    .flat_map(|part| part.chapters())
+                    .find(|chapter| {
+                        chapter.sections().iter().any(|section| {
+                            section
+                                .blocks()
+                                .iter()
+                                .any(|block| block.id() == position.block)
+                        })
+                    })?;
+                Some((chapter.id(), Some(position)))
+            });
+        let Some(target) = target else {
+            return;
+        };
+        self.chapter_target = Some(target);
+        self.open_prompt(PromptKind::Chapter);
+        // A new boundary starts unnamed; renaming starts with its title selected.
+        if target.1.is_some()
+            && let Some(prompt) = self.prompt.as_mut()
+        {
+            *prompt = Prompt::new(PromptKind::Chapter, String::new());
+        }
+        self.prompt_select_all();
     }
 
     /// Add a chapter after the caret's chapter's part and put the caret in it.
@@ -842,11 +989,29 @@ impl Editor {
                 .shape(&button.label, size, &[])
                 .map(|glyphs| glyphs.iter().map(|glyph| glyph.x_advance).sum())
                 .unwrap_or(0.0);
-            let x = button.x + ((button.w as f32 - label_w) / 2.0) as i32;
+            let dropdown = matches!(button.action, Action::FontSize | Action::ParagraphStyle);
+            let arrow_space = if dropdown { 12.0 * s } else { 0.0 };
+            let x = button.x + ((button.w as f32 - label_w - arrow_space) / 2.0) as i32;
             painter.push_clip(liminalkit_raster::Rect::new(
                 button.x, button.y, button.w, button.h,
             ));
             self.paint_label(painter, face, &button.label, x, baseline, size);
+            if dropdown {
+                let center = button.x + button.w - (7.0 * s) as i32;
+                let top = button.y + button.h / 2 - (2.0 * s) as i32;
+                for row in 0..4 {
+                    let half = ((3 - row) as f32 * s).round() as i32;
+                    painter.fill_rect(
+                        liminalkit_raster::Rect::new(
+                            center - half,
+                            top + (row as f32 * s) as i32,
+                            half * 2 + s.ceil() as i32,
+                            s.ceil() as i32,
+                        ),
+                        self.theme_now.chrome_ink,
+                    );
+                }
+            }
             painter.pop_clip();
         }
         if pages > 0 {

@@ -162,9 +162,16 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
             Some(Ok(interval)) => (interval, None),
             None => (AutosaveInterval::default(), None),
         };
+    let status = if book.as_deref().is_some_and(is_pages) {
+        Some(PAGES_NOTICE.into())
+    } else {
+        status
+    };
     let mut app = EditorApp {
         tabs: DocumentTabs::new(editor),
         clipboard: Clipboard::new(),
+        save_root: default_save_root(),
+        modifiers: liminalkit_shell::Modifiers::default(),
         announced: false,
         status,
         autosave_interval,
@@ -198,11 +205,22 @@ fn open(book: Option<PathBuf>, fullscreen: bool, source: Option<PathBuf>) -> Res
     })
 }
 
+fn default_save_root() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Documents")
+        .join("Liminaldoc")
+}
+
 struct EditorApp {
     autosave_interval: AutosaveInterval,
     autosave_settings: Option<PathBuf>,
     tabs: DocumentTabs,
     clipboard: Clipboard,
+    save_root: PathBuf,
+    modifiers: liminalkit_shell::Modifiers,
     announced: bool,
     /// The last save or export outcome, reported once on stderr.
     status: Option<String>,
@@ -383,9 +401,11 @@ impl EditorApp {
                 let imported = editor.bundle().is_none();
                 self.tabs.push(editor);
                 self.status = None;
-                if imported {
+                if is_pages(path) {
+                    self.report(Ok(PAGES_NOTICE.into()));
+                } else if imported {
                     self.report(Ok(format!(
-                        "imported text from {}; save as a .legebook to keep editing",
+                        "imported content from {}; save as a .legebook to keep editing",
                         path.display()
                     )));
                 }
@@ -423,7 +443,7 @@ impl EditorApp {
         #[cfg(target_os = "linux")]
         if let Some(path) = linux_file_dialog(&[
             "--title=Open document",
-            "--file-filter=Documents | *.txt *.md *.markdown *.odt *.docx *.pdf",
+            "--file-filter=Documents | *.txt *.md *.markdown *.odt *.docx *.pages *.pdf",
         ]) {
             if let Some(path) = path {
                 self.open_path(&path);
@@ -434,7 +454,7 @@ impl EditorApp {
             .set_title("Open document")
             .add_filter(
                 "Documents",
-                &["txt", "md", "markdown", "odt", "docx", "pdf"],
+                &["txt", "md", "markdown", "odt", "docx", "pages", "pdf"],
             )
             .pick_file();
         if let Some(path) = path {
@@ -531,9 +551,7 @@ impl EditorApp {
     }
 
     fn close_active_tab(&mut self) {
-        let needs_save = self.tabs.is_dirty()
-            || (self.tabs.bundle().is_none() && !self.tabs.book().plain_text().is_empty());
-        if needs_save && !self.save_active() {
+        if !self.save_closing_document(self.tabs.active_index()) {
             return;
         }
         self.tabs.close_active();
@@ -541,11 +559,7 @@ impl EditorApp {
     }
 
     fn backup_current_on_exit(&self, index: usize) -> Result<PathBuf, String> {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(std::env::temp_dir);
-        let root = home.join("Documents").join("Liminaldoc Recovery");
+        let root = self.save_root.join("Recovery");
         std::fs::create_dir_all(&root).map_err(|err| err.to_string())?;
         let title: String = self
             .tabs
@@ -563,6 +577,36 @@ impl EditorApp {
         let mut book = self.tabs.book().clone();
         book.save_bundle(&path).map_err(|err| err.to_string())?;
         Ok(path)
+    }
+
+    fn save_closing_document(&mut self, index: usize) -> bool {
+        match self.tabs.save_on_close(&self.save_root) {
+            Ok(path) => {
+                if let Some(path) = path {
+                    self.remember(&path);
+                }
+                true
+            }
+            Err(error) => {
+                eprintln!("liminaldoc-writer: close save failed: {error}");
+                match self.backup_current_on_exit(index) {
+                    Ok(path) => {
+                        self.remember(&path);
+                        eprintln!(
+                            "liminaldoc-writer: saved recovery copy at {}",
+                            path.display()
+                        );
+                        true
+                    }
+                    Err(backup) => {
+                        self.report(Err(format!(
+                            "Close save failed: {error}; recovery failed: {backup}"
+                        )));
+                        false
+                    }
+                }
+            }
+        }
     }
 
     fn run_tab_command(&mut self, command: TabCommand) {
@@ -594,6 +638,7 @@ impl EditorApp {
         let shift = event.modifiers.shift;
         let alt = event.modifiers.alt;
         match event.physical.as_str() {
+            "KeyA" => self.tabs.select_all(),
             "KeyZ" if shift => self.tabs.redo(),
             "KeyZ" => self.tabs.undo(),
             "KeyY" => self.tabs.redo(),
@@ -603,8 +648,10 @@ impl EditorApp {
                 }
             }
             "KeyX" => {
-                if let Some(text) = self.tabs.cut_text() {
-                    self.clipboard.set_text(text);
+                if let Some(text) = self.tabs.copy_text()
+                    && self.clipboard.set_text(text)
+                {
+                    self.tabs.cut_text();
                 }
             }
             "KeyV" => {
@@ -628,9 +675,10 @@ impl EditorApp {
             "KeyR" if !shift => self.tabs.set_alignment(Align::Right),
             "KeyJ" => self.tabs.set_alignment(Align::Justify),
             "KeyH" if shift => self.tabs.toggle_mark(Mark::SmallCaps),
+            "KeyH" => self.tabs.open_prompt(PromptKind::Replace),
             "Equal" if shift => self.tabs.toggle_mark(Mark::Superscript),
             "Minus" if shift => self.tabs.toggle_mark(Mark::Subscript),
-            "KeyN" if shift => self.tabs.open_prompt(PromptKind::NewChapter),
+            "KeyN" if shift => self.tabs.open_chapter_prompt(),
             "KeyN" if !alt => self.new_document(),
             "KeyO" if shift => self.tabs.open_prompt(PromptKind::OpenSource),
             "KeyO" if alt => self.open_book_dialog(),
@@ -640,7 +688,7 @@ impl EditorApp {
                 let on = !self.tabs.is_spread();
                 self.tabs.set_spread(on);
             }
-            "KeyR" if shift => self.tabs.open_prompt(PromptKind::RenameChapter),
+            "KeyR" if shift => self.tabs.open_chapter_prompt(),
             "KeyN" if alt => {
                 self.tabs.start_footnote();
             }
@@ -873,6 +921,9 @@ impl liminalkit_windowing::PixelApp for EditorApp {
     }
 
     fn animation_interval(&self) -> Option<Duration> {
+        if self.tabs.selection_needs_scroll() {
+            return Some(Duration::from_millis(30));
+        }
         self.tabs
             .iter()
             .any(|editor| editor.needs_save_tick())
@@ -880,6 +931,7 @@ impl liminalkit_windowing::PixelApp for EditorApp {
     }
 
     fn tick(&mut self) {
+        self.tabs.selection_scroll_tick();
         let mut errors = Vec::new();
         for editor in self.tabs.iter_mut() {
             editor.autosave_if_due(self.autosave_interval);
@@ -904,44 +956,19 @@ impl liminalkit_windowing::PixelApp for EditorApp {
         }
         for index in 0..self.tabs.len() {
             self.tabs.select(index);
-            let has_unsaved_text =
-                self.tabs.is_dirty() || !self.tabs.book().plain_text().is_empty();
-            let saved = if self.tabs.bundle().is_none() {
-                !has_unsaved_text || self.save_as_dialog()
-            } else {
-                match self.tabs.save_now() {
-                    Ok(()) => true,
-                    Err(err) => {
-                        eprintln!("liminaldoc-writer: could not save on exit: {err}");
-                        false
-                    }
-                }
-            };
-            if !saved {
-                match self.backup_current_on_exit(index) {
+            if !self.save_closing_document(index) {
+                match self.tabs.save_recovery_on_exit() {
                     Ok(path) => {
-                        eprintln!("liminaldoc-writer: recovery copy at {}", path.display());
-                        let _ = rfd::MessageDialog::new()
-                            .set_title("Recovery copy saved")
-                            .set_description(format!(
-                                "The manuscript was saved at {}",
-                                path.display()
-                            ))
-                            .show();
+                        eprintln!("liminaldoc-writer: draft retained at {}", path.display())
                     }
-                    Err(err) => {
-                        eprintln!("liminaldoc-writer: recovery copy failed: {err}");
-                        let _ = rfd::MessageDialog::new()
-                            .set_title("Could not save manuscript")
-                            .set_description(format!("Save and recovery both failed: {err}"))
-                            .show();
-                    }
+                    Err(error) => eprintln!("liminaldoc-writer: could not retain draft: {error}"),
                 }
             }
         }
     }
 
     fn on_key_event(&mut self, event: &KeyEvent) {
+        self.modifiers = event.modifiers;
         if !event.pressed {
             return;
         }
@@ -1015,6 +1042,8 @@ impl liminalkit_windowing::PixelApp for EditorApp {
             KeyInput::End => self.tabs.move_end(shift),
             KeyInput::PageDown => self.tabs.page(true, shift),
             KeyInput::PageUp => self.tabs.page(false, shift),
+            KeyInput::Backspace if word => self.tabs.delete_word(false),
+            KeyInput::Delete if word => self.tabs.delete_word(true),
             KeyInput::Backspace => self.tabs.backspace(),
             KeyInput::Delete => self.tabs.delete_forward(),
             KeyInput::Enter => self.tabs.type_text("\n"),
@@ -1041,6 +1070,17 @@ impl liminalkit_windowing::PixelApp for EditorApp {
         self.tabs.hover(x, y - offset);
     }
 
+    fn on_modifiers(&mut self, modifiers: liminalkit_shell::Modifiers) {
+        self.modifiers = modifiers;
+    }
+
+    fn on_focus_changed(&mut self, focused: bool) {
+        if !focused {
+            self.modifiers = liminalkit_shell::Modifiers::default();
+            self.tabs.cancel_pointer();
+        }
+    }
+
     fn on_mouse(&mut self, button: liminalkit_shell::MouseButton, pressed: bool) {
         if button == liminalkit_shell::MouseButton::Left {
             let top = self.tabs.toolbar_height() as f32;
@@ -1064,7 +1104,7 @@ impl liminalkit_windowing::PixelApp for EditorApp {
                 }
                 return;
             }
-            self.tabs.pointer(pressed);
+            self.tabs.pointer_with_shift(pressed, self.modifiers.shift);
             if let Some(command) = self.tabs.take_file_command() {
                 self.run_tab_command(command);
             }
@@ -1210,6 +1250,8 @@ mod input_tests {
                 "Test",
             ))),
             clipboard: Clipboard::new(),
+            save_root: std::env::temp_dir().join("liminaldoc-test-close"),
+            modifiers: liminalkit_shell::Modifiers::default(),
             announced: false,
             status: None,
             ime_composing: false,
@@ -1221,6 +1263,313 @@ mod input_tests {
             recent: RecentFiles::new(),
             recent_path: None,
         }
+    }
+
+    fn point(app: &mut EditorApp, block: usize, offset: usize, scale: f32) -> (f32, f32) {
+        let id = app.tabs.book().block_ids()[block];
+        app.tabs
+            .book_mut()
+            .set_selection(Selection::collapsed(Position::new(id, offset)))
+            .unwrap();
+        let mut buffer =
+            liminalkit_raster::WindowBuffer::new((1100.0 * scale) as u32, (900.0 * scale) as u32);
+        app.render(&mut buffer, liminalkit_shell::Scale::new(f64::from(scale)));
+        let caret = app.ime_cursor_area().unwrap();
+        (caret.x as f32, (caret.y + caret.height / 2.0) as f32)
+    }
+
+    fn mouse(app: &mut EditorApp, point: (f32, f32), pressed: bool) {
+        app.on_cursor(point.0, point.1);
+        app.on_mouse(liminalkit_shell::MouseButton::Left, pressed);
+    }
+
+    #[test]
+    fn closing_window_saves_all_documents_without_a_dialog_or_name_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app();
+        app.save_root = dir.path().join("Liminaldoc");
+        // The initial empty tab should not create an empty saved document.
+        let named = dir.path().join("Chosen.legebook");
+        app.tabs.push(docwrite_app::Editor::new_document("Named"));
+        app.tabs.type_text("old ");
+        app.tabs.save_as_bundle(&named).unwrap();
+        app.tabs.type_text("new");
+        for text in ["first unnamed draft", "second unnamed draft"] {
+            app.tabs
+                .push(docwrite_app::Editor::new_document("Untitled"));
+            app.tabs.type_text(text);
+        }
+        app.on_exit();
+        assert_eq!(
+            docwrite_model::Book::load_bundle(&named)
+                .unwrap()
+                .plain_text(),
+            "old new"
+        );
+        let paths: Vec<_> = std::fs::read_dir(&app.save_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(paths.len(), 2);
+        assert_ne!(paths[0], paths[1]);
+        let mut contents: Vec<_> = paths
+            .iter()
+            .map(|path| {
+                assert!(
+                    path.file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .starts_with("Untitled-")
+                );
+                docwrite_model::Book::load_bundle(path)
+                    .unwrap()
+                    .plain_text()
+            })
+            .collect();
+        contents.sort();
+        assert_eq!(contents, ["first unnamed draft", "second unnamed draft"]);
+        assert_eq!(app.recent.paths().len(), 3);
+    }
+
+    #[test]
+    fn closing_a_tab_automatically_saves_its_unnamed_text_and_failed_saves_keep_it_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = app();
+        app.save_root = dir.path().join("saved");
+        app.tabs.type_text("tab draft");
+        app.close_active_tab();
+        assert_eq!(app.tabs.book().plain_text(), "");
+        let path = app.recent.paths()[0].clone();
+        assert_eq!(
+            docwrite_model::Book::load_bundle(&path)
+                .unwrap()
+                .plain_text(),
+            "tab draft"
+        );
+        let blocked = dir.path().join("blocked");
+        std::fs::write(&blocked, "a file cannot hold a bundle").unwrap();
+        app.save_root = blocked;
+        app.tabs.type_text("keep this text");
+        app.close_active_tab();
+        assert_eq!(app.tabs.book().plain_text(), "keep this text");
+        assert!(app.status.as_deref().unwrap().contains("Close save failed"));
+    }
+
+    #[test]
+    fn an_unwritable_default_save_location_retains_a_recovery_copy_after_window_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = dir.path().join("blocked");
+        std::fs::write(&blocked, "not a directory").unwrap();
+        let root = dir.path().join("recovery");
+        let mut app = app();
+        app.save_root = blocked;
+        app.tabs.set_recovery_root(&root);
+        app.tabs
+            .type_text("Retain this draft even if Documents is unavailable.");
+        app.on_exit();
+        drop(app);
+        let path = std::fs::read_dir(&root)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(
+            docwrite_model::Book::load_bundle(&path)
+                .unwrap()
+                .plain_text(),
+            "Retain this draft even if Documents is unavailable."
+        );
+    }
+
+    #[test]
+    fn host_drag_selects_highlights_replaces_and_undoes_across_paragraphs() {
+        for scale in [1.0, 2.0] {
+            let mut app = app();
+            // Exercise the tab-strip coordinate offset as well as HiDPI.
+            app.run_tab_command(TabCommand::New);
+            app.tabs.type_text("alpha bravo\ncharlie delta");
+            let start = point(&mut app, 0, 6, scale);
+            let end = point(&mut app, 1, 7, scale);
+            let generation = app.tabs.layout_generation();
+            mouse(&mut app, start, true);
+            app.on_cursor(end.0, end.1);
+            assert_eq!(app.tabs.copy_text().as_deref(), Some("bravo\ncharlie"));
+            mouse(&mut app, end, false);
+            let selection = app.tabs.book().selection();
+            app.on_cursor(start.0, start.1);
+            assert_eq!(
+                app.tabs.book().selection(),
+                selection,
+                "released motion must not select"
+            );
+            let mut buffer = liminalkit_raster::WindowBuffer::new(
+                (1100.0 * scale) as u32,
+                (900.0 * scale) as u32,
+            );
+            app.render(&mut buffer, liminalkit_shell::Scale::new(f64::from(scale)));
+            assert_eq!(
+                app.tabs.layout_generation(),
+                generation,
+                "selection reuses layout"
+            );
+            assert!(buffer.pixels.contains(&app.tabs.theme().selection));
+            app.on_ime(&liminalkit_windowing::ImeEvent::Commit("REPLACED".into()));
+            assert_eq!(app.tabs.book().plain_text(), "alpha REPLACED delta");
+            app.tabs.undo();
+            assert_eq!(app.tabs.book().plain_text(), "alpha bravo\ncharlie delta");
+            app.tabs.redo();
+            assert_eq!(app.tabs.book().plain_text(), "alpha REPLACED delta");
+        }
+    }
+
+    #[test]
+    fn host_shift_click_extends_both_directions_and_focus_loss_ends_drag() {
+        let mut app = app();
+        app.tabs.type_text("alpha bravo charlie");
+        let left = point(&mut app, 0, 2, 1.0);
+        let middle = point(&mut app, 0, 6, 1.0);
+        let right = point(&mut app, 0, 11, 1.0);
+        mouse(&mut app, middle, true);
+        mouse(&mut app, middle, false);
+        app.on_modifiers(Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        });
+        mouse(&mut app, left, true);
+        mouse(&mut app, left, false);
+        assert_eq!(app.tabs.copy_text().as_deref(), Some("pha "));
+        mouse(&mut app, right, true);
+        mouse(&mut app, right, false);
+        assert_eq!(app.tabs.copy_text().as_deref(), Some("bravo"));
+        app.on_modifiers(Modifiers::default());
+        mouse(&mut app, left, true);
+        app.on_focus_changed(false);
+        let selection = app.tabs.book().selection();
+        app.on_cursor(right.0, right.1);
+        assert_eq!(app.tabs.book().selection(), selection);
+    }
+
+    #[test]
+    fn host_double_and_triple_click_select_word_and_paragraph() {
+        let mut app = app();
+        app.tabs
+            .type_text("alpha cafe\u{301} charlie\nsecond paragraph");
+        let word = point(&mut app, 0, 8, 1.0);
+        for _ in 0..2 {
+            mouse(&mut app, word, true);
+            mouse(&mut app, word, false);
+        }
+        assert_eq!(app.tabs.copy_text().as_deref(), Some("cafe\u{301}"));
+        mouse(&mut app, word, true);
+        mouse(&mut app, word, false);
+        assert_eq!(
+            app.tabs.copy_text().as_deref(),
+            Some("alpha cafe\u{301} charlie")
+        );
+    }
+
+    #[test]
+    fn host_edge_drag_scrolls_and_release_over_toolbar_stops_selection() {
+        let mut app = app();
+        app.tabs
+            .type_text(&"A long manuscript with selectable text. ".repeat(1000));
+        app.tabs.seek_page(1);
+        let start = point(&mut app, 0, 0, 1.0);
+        let generation = app.tabs.layout_generation();
+        mouse(&mut app, start, true);
+        app.on_cursor(start.0, 899.0);
+        assert_eq!(app.animation_interval(), Some(Duration::from_millis(30)));
+        let mut buffer = liminalkit_raster::WindowBuffer::new(1100, 900);
+        for _ in 0..120 {
+            app.tick();
+            app.render(&mut buffer, liminalkit_shell::Scale::ONE);
+        }
+        assert!(app.tabs.pager().scroll() >= 1.0);
+        assert!(app.tabs.copy_text().unwrap().len() > 1000);
+        assert_eq!(app.tabs.layout_generation(), generation);
+        mouse(&mut app, (start.0, 2.0), false);
+        let selection = app.tabs.book().selection();
+        app.on_cursor(start.0 + 100.0, start.1);
+        assert_eq!(app.tabs.book().selection(), selection);
+        assert!(!app.tabs.selection_needs_scroll());
+        assert!(app.tabs.file_menu().is_none());
+    }
+
+    #[test]
+    fn host_select_all_replace_and_word_delete_use_standard_shortcuts() {
+        let mut app = app();
+        app.tabs.type_text("alpha bravo\ncharlie");
+        let modifiers = if cfg!(target_os = "macos") {
+            Modifiers {
+                logo: true,
+                ..Modifiers::default()
+            }
+        } else {
+            Modifiers {
+                control: true,
+                ..Modifiers::default()
+            }
+        };
+        let send = |app: &mut EditorApp, key, physical: &str, modifiers| {
+            app.on_key_event(&KeyEvent {
+                key,
+                text: String::new(),
+                physical: physical.into(),
+                pressed: true,
+                repeat: false,
+                modifiers,
+            })
+        };
+        send(&mut app, KeyInput::Character('a'), "KeyA", modifiers);
+        assert_eq!(
+            app.tabs.copy_text().as_deref(),
+            Some("alpha bravo\ncharlie")
+        );
+        send(
+            &mut app,
+            KeyInput::Backspace,
+            "Backspace",
+            Modifiers::default(),
+        );
+        assert_eq!(app.tabs.book().plain_text(), "");
+        send(&mut app, KeyInput::Character('z'), "KeyZ", modifiers);
+        assert_eq!(app.tabs.book().plain_text(), "alpha bravo\ncharlie");
+        app.tabs.move_document_end(false);
+        let word = if cfg!(target_os = "macos") {
+            Modifiers {
+                alt: true,
+                ..Modifiers::default()
+            }
+        } else {
+            modifiers
+        };
+        send(&mut app, KeyInput::Backspace, "Backspace", word);
+        assert_eq!(app.tabs.book().plain_text(), "alpha bravo\n");
+        send(&mut app, KeyInput::Character('h'), "KeyH", modifiers);
+        assert_eq!(app.tabs.prompt().unwrap().kind, PromptKind::Replace);
+    }
+
+    #[test]
+    fn host_word_drag_works_backwards_in_fullscreen_and_tab_switch_cancels_it() {
+        let mut app = app();
+        app.tabs.type_text("alpha bravo charlie");
+        app.tabs.set_fullscreen(true);
+        let left = point(&mut app, 0, 2, 1.0);
+        let right = point(&mut app, 0, 14, 1.0);
+        mouse(&mut app, right, true);
+        mouse(&mut app, right, false);
+        mouse(&mut app, right, true);
+        assert_eq!(app.tabs.copy_text().as_deref(), Some("charlie"));
+        app.on_cursor(left.0, left.1);
+        assert_eq!(app.tabs.copy_text().as_deref(), Some("alpha bravo charlie"));
+        app.tabs.push(docwrite_app::Editor::new_document("Other"));
+        app.tabs.select(0);
+        let selection = app.tabs.book().selection();
+        app.on_cursor(right.0, right.1);
+        assert_eq!(app.tabs.book().selection(), selection);
+        assert!(!app.tabs.selection_needs_scroll());
     }
 
     #[test]
@@ -1355,6 +1704,11 @@ mod input_tests {
     #[test]
     fn prompt_keyboard_edits_and_replaces_selection_without_touching_the_book() {
         let mut app = app();
+        let chapter = app.tabs.book().parts()[0].chapters()[0].id();
+        app.tabs
+            .book_mut()
+            .rename_chapter(chapter, "Chapter 1")
+            .unwrap();
         app.tabs.open_prompt(PromptKind::RenameChapter);
         let send = |app: &mut EditorApp, key, physical: &str, modifiers| {
             app.on_key_event(&KeyEvent {
@@ -1562,4 +1916,10 @@ mod input_tests {
             app.tabs.theme().ink
         );
     }
+}
+
+const PAGES_NOTICE: &str = "Pages imported: text and editable tables reflowed; original styles, row merges and floating positions are not reproduced. Save as .legebook.";
+fn is_pages(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pages"))
 }

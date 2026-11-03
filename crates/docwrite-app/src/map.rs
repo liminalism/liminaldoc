@@ -102,7 +102,11 @@ impl BookMap {
                 chapter_index += 1;
                 rows.push(MapRow {
                     kind: MapKind::Chapter,
-                    title: chapter.title().to_string(),
+                    title: if chapter.title().is_empty() {
+                        "Text".into()
+                    } else {
+                        chapter.title().to_string()
+                    },
                     chapter_index: Some(index),
                     part_id: Some(part.id()),
                     chapter_id: Some(chapter.id()),

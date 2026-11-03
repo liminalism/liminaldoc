@@ -68,6 +68,39 @@ fn carriage_return_is_one_paragraph_break() {
 }
 
 #[test]
+fn character_arrows_collapse_selection_without_skipping_a_character() {
+    let mut book = edited("alpha\nbravo");
+    let ids = book.block_ids();
+    let start = Position::new(ids[0], 2);
+    let end = Position::new(ids[1], 3);
+    for reversed in [false, true] {
+        for direction in [Direction::Backward, Direction::Forward] {
+            book.set_selection(if reversed {
+                Selection {
+                    anchor: end,
+                    focus: start,
+                }
+            } else {
+                Selection {
+                    anchor: start,
+                    focus: end,
+                }
+            })
+            .unwrap();
+            book.move_caret(Motion::Char(direction)).unwrap();
+            assert_eq!(
+                book.selection(),
+                Selection::collapsed(if direction == Direction::Forward {
+                    end
+                } else {
+                    start
+                })
+            );
+        }
+    }
+}
+
+#[test]
 fn grapheme_motion_keeps_combining_marks() {
     let mut book = edited("e\u{0301}x");
     let id = book.block_ids()[0];

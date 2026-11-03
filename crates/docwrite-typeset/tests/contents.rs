@@ -19,6 +19,8 @@ bundle carried a date in a hand that changed over the years from careful to hurr
 
 fn book() -> Book {
     let mut book = Book::new("Contents");
+    let first_chapter = book.parts()[0].chapters()[0].id();
+    book.rename_chapter(first_chapter, "Chapter 1").unwrap();
     book.insert(&PROSE.repeat(12)).unwrap();
     let part = book.parts()[0].id();
     for title in ["The Clerk", "Bundles"] {

@@ -385,6 +385,9 @@ impl Book {
         let mut number = 1u32;
         for part in self.parts() {
             for chapter in part.chapters() {
+                if chapter.title().is_empty() {
+                    continue;
+                }
                 let opener = self
                     .stylesheet
                     .templates

@@ -412,6 +412,21 @@ fn bookmarks(book: &Book, document: &Document) -> Vec<OutlineItem> {
     let mut items = Vec::new();
     for part in book.parts() {
         for chapter in part.chapters() {
+            let title = if chapter.title().is_empty() {
+                chapter
+                    .sections()
+                    .iter()
+                    .flat_map(|section| section.blocks())
+                    .next()
+                    .filter(|block| matches!(block.kind(), docwrite_model::BlockKind::ChapterTitle))
+                    .map(|block| block.text())
+                    .unwrap_or_default()
+            } else {
+                chapter.title().to_string()
+            };
+            if title.is_empty() {
+                continue;
+            }
             // The opener is the title set from the chapter's metadata, or
             // the chapter's first block when that block is its title.
             let opener = document
@@ -428,7 +443,7 @@ fn bookmarks(book: &Book, document: &Document) -> Vec<OutlineItem> {
                 continue;
             };
             items.push(OutlineItem {
-                title: chapter.title().to_string(),
+                title,
                 page_index: page - 1,
                 top: Some(top),
                 children: Vec::new(),

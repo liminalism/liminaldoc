@@ -121,6 +121,11 @@ fn an_endnote_keeps_its_slot() {
 #[test]
 fn a_click_abandons_without_returning_and_a_prompt_returns() {
     let mut editor = Editor::new();
+    let chapter = editor.book().parts()[0].chapters()[0].id();
+    editor
+        .book_mut()
+        .rename_chapter(chapter, "Chapter 1")
+        .unwrap();
     editor.type_text("First line.\nSecond line.\nThird line.");
     // The Book Map only shows once the book has a structure.
     editor.new_chapter("Two");

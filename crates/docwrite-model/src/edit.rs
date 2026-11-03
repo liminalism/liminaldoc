@@ -140,6 +140,13 @@ pub(crate) struct Transaction {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Change {
+    SplitChapter {
+        part: usize,
+        index: usize,
+        before: Chapter,
+        leading: Chapter,
+        trailing: Chapter,
+    },
     InsertPart {
         index: usize,
         part: Part,
@@ -228,7 +235,11 @@ impl Book {
     pub fn move_caret(&mut self, motion: Motion) -> Result<(), ModelError> {
         self.typing_marks = None;
         let origin = self.motion_origin(motion)?;
-        let focus = self.position_after(origin, motion)?;
+        let focus = if !self.selection.is_collapsed() && matches!(motion, Motion::Char(_)) {
+            origin
+        } else {
+            self.position_after(origin, motion)?
+        };
         self.selection = Selection::collapsed(focus);
         Ok(())
     }
@@ -432,6 +443,10 @@ impl Book {
             }
             let at = book.selection.focus;
             if book.block_len(at.block)? == 0
+                && !matches!(
+                    book.block_ref(at.block)?.kind(),
+                    BlockKind::TableCell { .. }
+                )
                 && let Some(first) = fragment.blocks.first()
             {
                 book.set_kind_change(at.block, first.kind.clone(), changes)?;
@@ -641,7 +656,11 @@ impl Book {
 
     /// Change a block's kind. Recorded as its own undo step.
     pub fn set_kind(&mut self, block: BlockId, kind: BlockKind) -> Result<(), ModelError> {
-        let _ = self.block_ref(block)?;
+        if matches!(self.block_ref(block)?.kind(), BlockKind::TableCell { .. }) {
+            return Err(ModelError::Inconsistent(
+                "table cell structure cannot be changed with paragraph formatting",
+            ));
+        }
         self.transact(|book, changes| book.set_kind_change(block, kind, changes))
     }
 
@@ -754,6 +773,19 @@ impl Book {
         self.transact(|book, changes| {
             book.apply(&change, false)?;
             changes.push(change);
+            Ok(())
+        })
+    }
+
+    pub(crate) fn record_at(
+        &mut self,
+        change: Change,
+        selection: Selection,
+    ) -> Result<(), ModelError> {
+        self.transact(|book, changes| {
+            book.apply(&change, false)?;
+            changes.push(change);
+            book.selection = selection;
             Ok(())
         })
     }
@@ -930,6 +962,18 @@ impl Book {
             return Ok(());
         }
 
+        let kind = self.block_ref(start.block)?.kind();
+        for id in self.ids_from_to(start.block, end.block)? {
+            let other = self.block_ref(id)?.kind();
+            if (matches!(kind, BlockKind::TableCell { .. })
+                || matches!(other, BlockKind::TableCell { .. }))
+                && kind != other
+            {
+                return Err(ModelError::Inconsistent(
+                    "delete within one table cell at a time",
+                ));
+            }
+        }
         let (tail_text, tail_runs) = {
             let block = self.block_ref(end.block)?;
             let len = block.len_chars();
@@ -1035,7 +1079,14 @@ impl Book {
             } else if !runs::runs_cover(&piece_runs, runs::char_count(&text)) {
                 return Err(ModelError::InvalidRuns);
             }
-            let kind = piece.kind.clone().unwrap_or_default();
+            let kind = if matches!(
+                self.block_ref(at.block)?.kind(),
+                BlockKind::TableCell { .. }
+            ) {
+                self.block_ref(at.block)?.kind().clone()
+            } else {
+                piece.kind.clone().unwrap_or_default()
+            };
             let id = self.ids.block();
             let mut block = Block::new(id, kind, &text, piece_runs);
             if let Some(note) = piece.note {
@@ -1206,6 +1257,34 @@ impl Book {
 
     fn apply(&mut self, change: &Change, backward: bool) -> Result<(), ModelError> {
         match change {
+            Change::SplitChapter {
+                part,
+                index,
+                before,
+                leading,
+                trailing,
+            } => {
+                let chapters = self
+                    .parts_vec_mut()
+                    .get_mut(*part)
+                    .ok_or(ModelError::EditConflict)?
+                    .chapters_mut();
+                if backward {
+                    if chapters.get(*index) != Some(leading)
+                        || chapters.get(*index + 1) != Some(trailing)
+                    {
+                        return Err(ModelError::EditConflict);
+                    }
+                    chapters.splice(*index..*index + 2, [before.clone()]);
+                } else {
+                    if chapters.get(*index) != Some(before) {
+                        return Err(ModelError::EditConflict);
+                    }
+                    chapters.splice(*index..*index + 1, [leading.clone(), trailing.clone()]);
+                }
+                self.reindex();
+                Ok(())
+            }
             Change::InsertPart { index, part } => {
                 if backward {
                     if self.parts().get(*index).map(Part::id) != Some(part.id()) {

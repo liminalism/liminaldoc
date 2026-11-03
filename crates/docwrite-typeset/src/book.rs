@@ -315,6 +315,41 @@ fn layout_inputs(
                     if matches!(block.kind(), BlockKind::Caption) {
                         style.name = "Caption".into();
                     }
+                    if let BlockKind::TableCell {
+                        table,
+                        row,
+                        column,
+                        columns,
+                        span,
+                        widths,
+                        ..
+                    } = block.kind()
+                    {
+                        let columns = (*columns).max(1);
+                        let total = widths.iter().map(|w| *w as f32).sum::<f32>().max(1.0);
+                        let fraction = |start: usize, end: usize| -> f32 {
+                            if widths.len() == columns {
+                                widths[start.min(columns)..end.min(columns)]
+                                    .iter()
+                                    .map(|w| *w as f32)
+                                    .sum::<f32>()
+                                    / total
+                            } else {
+                                end.saturating_sub(start) as f32 / columns as f32
+                            }
+                        };
+                        let width = geometry.content_width();
+                        style.table_row = Some((*table, *row));
+                        style.left_indent = fraction(0, *column) * width + 3.0;
+                        style.right_indent =
+                            fraction(column.saturating_add(*span), columns) * width + 3.0;
+                        style.first_indent = 0.0;
+                        style.align = Alignment::Left;
+                        style.space_before = 3.0;
+                        style.space_after = 3.0;
+                        style.widow_orphan = false;
+                        style.keep_with_next = false;
+                    }
                     // Footnotes are numbered through the book and set at the
                     // foot of their page; endnotes are numbered separately and
                     // set in the Notes section after the last chapter.

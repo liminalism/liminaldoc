@@ -10,6 +10,8 @@ use docwrite_model::{Book, SourceNote};
 #[test]
 fn ten_chapters_follow_one_template_and_reorder_and_reopen() {
     let mut book = Book::new("Essay");
+    book.rename_chapter(book.parts()[0].chapters()[0].id(), "Chapter 1")
+        .unwrap();
     let part = book.parts()[0].id();
     book.insert("Opening paragraph.").unwrap();
     for index in 2..=10 {

@@ -32,6 +32,11 @@ fn release(editor: &mut Editor, index: usize) {
 #[test]
 fn the_map_lists_matter_and_a_drag_reorders_chapters() {
     let mut editor = Editor::new();
+    let chapter = editor.book().parts()[0].chapters()[0].id();
+    editor
+        .book_mut()
+        .rename_chapter(chapter, "Chapter 1")
+        .unwrap();
     let body = editor.book().parts()[0].id();
     let alpha = editor.book_mut().add_chapter(body, "Alpha").unwrap();
     editor.book_mut().add_section(alpha, "Interlude").unwrap();

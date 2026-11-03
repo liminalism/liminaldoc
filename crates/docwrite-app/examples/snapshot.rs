@@ -2,6 +2,7 @@
 //! `cargo run -p docwrite-app --example snapshot -- BOOK.legebook OUT.png [page] [--fullscreen] [--scale 2] [--source S.pdf] [--spread] [--footnote TEXT] [--prompt TEXT] [--go-to-page] [--menu]`
 //!
 //! `--menu` opens the File menu over a sample recent-files list.
+//! `--size-menu` and `--style-menu` preview the formatting dropdowns.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -87,6 +88,12 @@ fn main() {
         let menu = editor.file_menu().expect("menu").clone();
         let (top, h) = menu.row_rect(7).expect("row");
         editor.hover((menu.x + 20) as f32, (top + h / 2) as f32);
+    }
+    if args.iter().any(|arg| arg == "--size-menu") {
+        editor.open_size_menu();
+    }
+    if args.iter().any(|arg| arg == "--style-menu") {
+        editor.open_style_menu();
     }
     editor.paint(&mut frame);
     liminalkit_raster::png::write(out.as_str(), &frame).expect("write png");

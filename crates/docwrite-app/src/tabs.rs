@@ -97,12 +97,14 @@ impl DocumentTabs {
         if index >= self.documents.len() {
             return false;
         }
+        self.documents[self.active].cancel_pointer();
         self.active = index;
         true
     }
 
     /// Cycle to the next or previous tab.
     pub fn next(&mut self, backward: bool) {
+        self.documents[self.active].cancel_pointer();
         let count = self.documents.len();
         self.active = if backward {
             (self.active + count - 1) % count
@@ -113,6 +115,7 @@ impl DocumentTabs {
 
     /// Add a document and select it.
     pub fn push(&mut self, editor: Editor) {
+        self.documents[self.active].cancel_pointer();
         self.documents.push(editor);
         self.active = self.documents.len() - 1;
     }

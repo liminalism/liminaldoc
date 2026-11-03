@@ -28,6 +28,133 @@ fn click_at_width(editor: &mut Editor, action: Action, width: i32) {
     editor.pointer(false);
 }
 
+fn choose(editor: &mut Editor, label: &str) {
+    let menu = editor.file_menu().unwrap().clone();
+    let index = menu
+        .items
+        .iter()
+        .position(|item| item.label == label)
+        .unwrap();
+    let (top, height) = menu.row_rect(index).unwrap();
+    editor.hover((menu.x + 10) as f32, (top + height / 2) as f32);
+    editor.pointer(true);
+    editor.pointer(false);
+    assert!(editor.file_menu().is_none());
+}
+
+#[test]
+fn dropdowns_offer_all_styles_and_sizes_and_keyboard_selection_keeps_the_manuscript_selection() {
+    use liminalkit_shell::KeyInput;
+    let mut editor = Editor::new_document("Dropdowns");
+    editor.type_text("alpha\nbravo");
+    editor.select_all();
+    let selected = editor.book().selection();
+    let mut buffer = liminalkit_raster::WindowBuffer::new(640, 400);
+    editor.set_ui_scale(2.0);
+    editor.paint(&mut buffer);
+    editor.open_style_menu();
+    let labels: Vec<_> = editor
+        .file_menu()
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "Body",
+            "Subhead",
+            "Block Quote",
+            "Epigraph",
+            "Verse",
+            "Caption",
+            "Scene Break"
+        ]
+    );
+    assert!(editor.menu_key(&KeyInput::Down));
+    assert!(editor.menu_key(&KeyInput::Enter));
+    assert_eq!(editor.book().selection(), selected);
+    assert!(
+        editor
+            .book()
+            .blocks()
+            .all(|block| matches!(block.kind(), BlockKind::Subhead))
+    );
+    editor.open_size_menu();
+    assert!(editor.menu_key(&KeyInput::End));
+    let menu = editor.file_menu().unwrap();
+    let index = menu.highlighted.unwrap();
+    assert_eq!(menu.items[index].label, "36 pt");
+    let (top, height) = menu.row_rect(index).unwrap();
+    assert!(top >= menu.y && top + height <= menu.y + menu.h);
+    assert!(menu.y + menu.h <= 400);
+    editor.menu_key(&KeyInput::Enter);
+    assert_eq!(editor.body_size(), 36.0);
+    assert_eq!(editor.book().selection(), selected);
+    editor.open_size_menu();
+    editor.menu_key(&KeyInput::Home);
+    editor.menu_key(&KeyInput::Escape);
+    assert_eq!(editor.body_size(), 36.0, "Escape leaves the size unchanged");
+    assert!(editor.file_menu().is_none());
+}
+
+#[test]
+fn chapter_control_adds_and_renames_at_the_visible_page_instead_of_the_hidden_caret() {
+    let mut editor = Editor::new_document("Long article");
+    let original = "A long paragraph with ordinary text and Unicode café. ".repeat(800);
+    editor.type_text(&original);
+    frame(&mut editor);
+    assert!(!editor.has_map());
+    assert!(editor.pager().pages() > 3);
+    editor.move_document_start(false);
+    editor.refresh_layout();
+    editor.jump_to_page(3);
+    frame(&mut editor);
+    let original_block = editor.book().selection().focus.block;
+    assert_eq!(editor.book().selection().focus.offset, 0);
+    click(&mut editor, Action::Chapter);
+    assert_eq!(editor.prompt().unwrap().text, "");
+    editor.prompt_type("Later chapter");
+    editor.commit_prompt();
+    frame(&mut editor);
+    assert_eq!(editor.book().parts()[0].chapters().len(), 2);
+    assert!(editor.book().parts()[0].chapters()[0].title().is_empty());
+    assert_eq!(
+        editor.book().parts()[0].chapters()[1].title(),
+        "Later chapter"
+    );
+    assert!(original.starts_with(&editor.book().block(original_block).unwrap().text()));
+    assert_eq!(editor.book().plain_text().replace('\n', ""), original);
+    let page = editor.pager().page_top() + 1;
+    editor.move_document_start(false);
+    editor.refresh_layout();
+    editor.jump_to_page(page);
+    frame(&mut editor);
+    click(&mut editor, Action::Chapter);
+    assert_eq!(
+        editor.prompt_selected_text().as_deref(),
+        Some("Later chapter")
+    );
+    editor.prompt_type("Renamed chapter");
+    editor.commit_prompt();
+    assert_eq!(editor.book().parts()[0].chapters().len(), 2);
+    assert_eq!(
+        editor.book().parts()[0].chapters()[1].title(),
+        "Renamed chapter"
+    );
+    editor.undo();
+    assert_eq!(
+        editor.book().parts()[0].chapters()[1].title(),
+        "Later chapter"
+    );
+    editor.undo();
+    assert_eq!(editor.book().parts()[0].chapters().len(), 1);
+    assert_eq!(editor.book().plain_text(), original);
+    editor.redo();
+    assert_eq!(editor.book().parts()[0].chapters().len(), 2);
+}
+
 #[test]
 fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
     let mut editor = Editor::new();
@@ -36,7 +163,7 @@ fn narrow_and_scaled_toolbars_keep_every_action_without_overlapping() {
         .iter()
         .map(|button| button.action)
         .collect();
-    assert_eq!(expected.len(), 18);
+    assert_eq!(expected.len(), 16);
     for (width, scale) in [(640, 1.0), (1100, 1.0), (1100, 1.5), (1280, 2.0)] {
         editor.set_ui_scale(scale);
         let buttons = editor.toolbar_buttons(width);
@@ -72,15 +199,15 @@ fn compact_chapter_and_note_controls_work_and_pages_stay_below_them() {
     let mut editor = Editor::new();
     let mut buffer = liminalkit_raster::WindowBuffer::new(640, 800);
     editor.paint(&mut buffer);
-    click_at_width(&mut editor, Action::NewChapter, 640);
+    click_at_width(&mut editor, Action::Chapter, 640);
     editor.prompt_type("Narrow window chapter");
     editor.commit_prompt();
     editor.paint(&mut buffer);
     assert_eq!(
-        editor.book().parts()[0].chapters()[1].title(),
+        editor.book().parts()[0].chapters()[0].title(),
         "Narrow window chapter"
     );
-    click_at_width(&mut editor, Action::RenameChapter, 640);
+    click_at_width(&mut editor, Action::Chapter, 640);
     assert_eq!(editor.prompt().unwrap().text, "Narrow window chapter");
     editor.prompt_type(" renamed");
     editor.commit_prompt();
@@ -164,7 +291,8 @@ fn buttons_format_the_selection_and_show_its_state() {
     assert!(!editor.book().selection_has(Mark::Bold));
 
     assert_eq!(editor.current_style_label(), "Body");
-    click(&mut editor, Action::CycleStyle);
+    click(&mut editor, Action::ParagraphStyle);
+    choose(&mut editor, "Subhead");
     assert_eq!(editor.current_style_label(), "Subhead");
     let kind = editor.book().block(first).unwrap().kind().clone();
     assert_eq!(kind, BlockKind::Subhead);
@@ -178,7 +306,8 @@ fn buttons_format_the_selection_and_show_its_state() {
         .find(|style| style.name == "Body")
         .unwrap()
         .size_pt;
-    click(&mut editor, Action::Larger);
+    click(&mut editor, Action::FontSize);
+    choose(&mut editor, "14 pt");
     let after = editor
         .book()
         .paragraph_styles()
@@ -186,17 +315,18 @@ fn buttons_format_the_selection_and_show_its_state() {
         .find(|style| style.name == "Body")
         .unwrap()
         .size_pt;
-    assert_eq!(after, before + 0.5);
+    assert_ne!(after, before);
+    assert_eq!(after, 14.0);
 }
 
 #[test]
 fn prompts_add_and_rename_chapters_and_attach_notes() {
-    let mut editor = Editor::new();
+    let mut editor = Editor::new_document("Draft");
     frame(&mut editor);
-    click(&mut editor, Action::NewChapter);
+    click(&mut editor, Action::Chapter);
     assert_eq!(
         editor.prompt().map(|prompt| prompt.kind),
-        Some(PromptKind::NewChapter)
+        Some(PromptKind::Chapter)
     );
     editor.prompt_type("The Clerk");
     assert!(editor.commit_prompt());
@@ -206,10 +336,7 @@ fn prompts_add_and_rename_chapters_and_attach_notes() {
         .iter()
         .map(|chapter| chapter.title().to_string())
         .collect();
-    assert_eq!(
-        titles,
-        vec!["Chapter 1".to_string(), "The Clerk".to_string()]
-    );
+    assert_eq!(titles, vec!["The Clerk".to_string()]);
     editor.type_text("Words of the new chapter.");
     assert!(
         editor
@@ -230,7 +357,7 @@ fn prompts_add_and_rename_chapters_and_attach_notes() {
     editor.prompt_type("Archivist");
     editor.commit_prompt();
     assert_eq!(
-        editor.book().parts()[0].chapters()[1].title(),
+        editor.book().parts()[0].chapters()[0].title(),
         "The Archivist"
     );
 

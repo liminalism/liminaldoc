@@ -115,6 +115,9 @@ impl Editor {
     /// wheel notch moves the view and leaves it there; a gesture with
     /// phases accumulates while it moves and settles on a page when it ends.
     pub fn scroll_wheel(&mut self, pixel_dy: f32, line_dy: Option<f32>, phase: Phase) {
+        if self.menu_scroll(line_dy.map_or(pixel_dy, |lines| lines * 22.0 * self.ui_scale)) {
+            return;
+        }
         let pages = match line_dy {
             Some(lines) if lines != 0.0 => -f64::from(lines) * PAGES_PER_WHEEL_LINE,
             Some(_) => 0.0,
